@@ -1,8 +1,12 @@
-import { useEffect, useRef } from 'react';
-import * as THREE from 'three';
-import portraitTopUrl from '../assets/hero/clean.png';
-import portraitBottomUrl from '../assets/hero/tattooed.png';
-import { vertexShader, fluidFragmentShader, displayFragmentShader } from './heroShaders';
+import { useEffect, useRef } from "react";
+import * as THREE from "three";
+import portraitTopUrl from "../assets/hero/clean.png";
+import portraitBottomUrl from "../assets/hero/tattooed.png";
+import {
+  vertexShader,
+  fluidFragmentShader,
+  displayFragmentShader,
+} from "./heroShaders";
 
 /**
  * Hero — full-viewport WebGL fluid-trail reveal.
@@ -45,6 +49,10 @@ const CONFIG = {
   stopAfterMs: 50,
   // Max texture size — downscale source images larger than this
   maxTextureSize: 4096,
+
+  // Force both hero images to the same internal canvas size
+  heroTextureWidth: 3840,
+  heroTextureHeight: 2160,
 };
 
 export function HeroReveal() {
@@ -56,7 +64,11 @@ export function HeroReveal() {
     const canvas = canvasRef.current!;
 
     /* ----- renderer + scene ----- */
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, precision: 'highp' });
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      precision: "highp",
+    });
     renderer.setSize(wrap.clientWidth, wrap.clientHeight, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
@@ -94,9 +106,9 @@ export function HeroReveal() {
 
     /* ----- placeholder textures (used until images decode) ----- */
     function solidTexture(hex: string): THREE.CanvasTexture {
-      const c = document.createElement('canvas');
+      const c = document.createElement("canvas");
       c.width = c.height = 2;
-      const ctx = c.getContext('2d')!;
+      const ctx = c.getContext("2d")!;
       ctx.fillStyle = hex;
       ctx.fillRect(0, 0, 2, 2);
       const tex = new THREE.CanvasTexture(c);
@@ -105,14 +117,17 @@ export function HeroReveal() {
       tex.generateMipmaps = false;
       return tex;
     }
-    const topTexture = solidTexture('#0000ff');
-    const bottomTexture = solidTexture('#ff0000');
+    const topTexture = solidTexture("#0000ff");
+    const bottomTexture = solidTexture("#ff0000");
     const topTextureSize = new THREE.Vector2(0, 0);
     const bottomTextureSize = new THREE.Vector2(0, 0);
 
     /* ----- shader materials ----- */
     const dpr = renderer.getPixelRatio();
-    const resolutionVec = new THREE.Vector2(wrap.clientWidth * dpr, wrap.clientHeight * dpr);
+    const resolutionVec = new THREE.Vector2(
+      wrap.clientWidth * dpr,
+      wrap.clientHeight * dpr,
+    );
 
     const trailsMaterial = new THREE.ShaderMaterial({
       vertexShader,
@@ -152,37 +167,56 @@ export function HeroReveal() {
       url: string,
       sizeVec: THREE.Vector2,
       onReady: (tex: THREE.CanvasTexture) => void,
+      options?: {
+        offsetX?: number;
+        offsetY?: number;
+        scale?: number;
+      },
     ) {
       const img = new Image();
-      img.crossOrigin = 'Anonymous';
+      img.crossOrigin = "Anonymous";
+
       img.onload = () => {
-        let { naturalWidth: w, naturalHeight: h } = img;
-        let drawW = w;
-        let drawH = h;
-        if (Math.max(w, h) > CONFIG.maxTextureSize) {
-          const scale = CONFIG.maxTextureSize / Math.max(w, h);
-          drawW = Math.round(w * scale);
-          drawH = Math.round(h * scale);
-        }
-        const off = document.createElement('canvas');
+        const drawW = CONFIG.heroTextureWidth;
+        const drawH = CONFIG.heroTextureHeight;
+
+        const off = document.createElement("canvas");
         off.width = drawW;
         off.height = drawH;
-        const ctx = off.getContext('2d')!;
-        ctx.drawImage(img, 0, 0, drawW, drawH);
+
+        const ctx = off.getContext("2d")!;
+
+        const offsetX = options?.offsetX ?? 0;
+        const offsetY = options?.offsetY ?? 0;
+        const scale = options?.scale ?? 1;
+
+        const scaledW = drawW * scale;
+        const scaledH = drawH * scale;
+
+        const dx = (drawW - scaledW) * 0.5 + offsetX;
+        const dy = (drawH - scaledH) * 0.5 + offsetY;
+
+        ctx.clearRect(0, 0, drawW, drawH);
+        ctx.drawImage(img, dx, dy, scaledW, scaledH);
+
         const tex = new THREE.CanvasTexture(off);
         tex.minFilter = THREE.LinearFilter;
         tex.magFilter = THREE.LinearFilter;
         tex.generateMipmaps = false;
         tex.needsUpdate = true;
+
         sizeVec.set(drawW, drawH);
         onReady(tex);
-        // eslint-disable-next-line no-console
-        console.info(`[hero] loaded ${url} as ${drawW}×${drawH}`);
+
+        console.info(
+          `[hero] loaded ${url} as ${drawW}×${drawH} | scale=${scale} offsetX=${offsetX} offsetY=${offsetY}`,
+        );
       };
+
       img.onerror = (e) => {
-        // eslint-disable-next-line no-console
         console.warn(`[hero] failed to load ${url}`, e);
       };
+
       img.src = url;
     }
 
@@ -197,13 +231,19 @@ export function HeroReveal() {
     // normalised UV as the clean texture.
     loadImageAsTexture(portraitTopUrl, topTextureSize, (tex) => {
       displayMaterial.uniforms.uTopTexture.value = tex;
-      // Lock the bottom's reference size to the top so the two share a UV map.
-      bottomTextureSize.copy(topTextureSize);
     });
-    loadImageAsTexture(portraitBottomUrl, new THREE.Vector2(), (tex) => {
-      displayMaterial.uniforms.uBottomTexture.value = tex;
-      // Do NOT update bottomTextureSize here — it mirrors topTextureSize.
-    });
+
+    loadImageAsTexture(
+      portraitBottomUrl,
+      bottomTextureSize,
+      (tex) => {
+        displayMaterial.uniforms.uBottomTexture.value = tex;
+      },
+      {
+        offsetY: 32,
+        scale: 0.98,
+      },
+    );
 
     /* ----- input ----- */
     function rectOf(): DOMRect {
@@ -242,8 +282,8 @@ export function HeroReveal() {
       }
     }
 
-    window.addEventListener('mousemove', onMouseMove, { passive: true });
-    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    window.addEventListener("touchmove", onTouchMove, { passive: false });
 
     /* ----- resize ----- */
     function resize() {
@@ -259,7 +299,7 @@ export function HeroReveal() {
     }
     const ro = new ResizeObserver(() => resize());
     ro.observe(wrap);
-    window.addEventListener('resize', resize);
+    window.addEventListener("resize", resize);
     resize();
 
     /* ----- render loop ----- */
@@ -285,10 +325,17 @@ export function HeroReveal() {
         // Idle auto-trail — layered incommensurate sines for an organic
         // never-repeating path that stays inside the canvas. Easing in
         // over idleEaseInMs prevents a sudden segment on first wake.
-        const easeIn = Math.min(1, (idleTime - CONFIG.idleThresholdMs) / CONFIG.idleEaseInMs);
+        const easeIn = Math.min(
+          1,
+          (idleTime - CONFIG.idleThresholdMs) / CONFIG.idleEaseInMs,
+        );
         const t = now * 0.001;
-        const targetX = 0.5 + 0.30 * Math.sin(t * 0.41) + 0.12 * Math.sin(t * 0.93 + 1.3);
-        const targetY = 0.5 + 0.28 * Math.cos(t * 0.37 + 0.5) + 0.10 * Math.cos(t * 1.11 + 2.7);
+        const targetX =
+          0.5 + 0.3 * Math.sin(t * 0.41) + 0.12 * Math.sin(t * 0.93 + 1.3);
+        const targetY =
+          0.5 +
+          0.28 * Math.cos(t * 0.37 + 0.5) +
+          0.1 * Math.cos(t * 1.11 + 2.7);
         prevAutoMouse.copy(autoMouse);
         autoMouse.x += (targetX - autoMouse.x) * CONFIG.autoLerp * easeIn;
         autoMouse.y += (targetY - autoMouse.y) * CONFIG.autoLerp * easeIn;
@@ -319,9 +366,9 @@ export function HeroReveal() {
 
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('touchmove', onTouchMove);
-      window.removeEventListener('resize', resize);
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("touchmove", onTouchMove);
+      window.removeEventListener("resize", resize);
       ro.disconnect();
       pingPong.forEach((t) => t.dispose());
       planeGeo.dispose();
@@ -334,10 +381,25 @@ export function HeroReveal() {
   }, []);
 
   return (
-    <div ref={wrapRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#F1F1F1' }}>
+    <div
+      ref={wrapRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        overflow: "hidden",
+        background: "#F1F1F1",
+      }}
+    >
       <canvas
         ref={canvasRef}
-        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          display: "block",
+          cursor: "crosshair",
+        }}
       />
     </div>
   );
