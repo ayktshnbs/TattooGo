@@ -186,20 +186,24 @@ export function HeroReveal() {
       img.src = url;
     }
 
-    let topReady = false;
-    let bottomReady = false;
+    // We deliberately drive both texture-size uniforms from the *clean*
+    // image's natural dimensions so `getCoverUV` produces the same UV map
+    // for both samplers. Since the woman is composed identically in both
+    // source PNGs (face centered horizontally, face centre at ratio ~0.58
+    // vertically, same crop), this makes the cursor reveal pixel-overlay
+    // the tattooed face exactly where the clean face is — no horizontal
+    // drift, no vertical drift, no scale difference. The actual tattooed
+    // texture can be any size; the shader still samples it at the same
+    // normalised UV as the clean texture.
     loadImageAsTexture(portraitTopUrl, topTextureSize, (tex) => {
       displayMaterial.uniforms.uTopTexture.value = tex;
-      topReady = true;
+      // Lock the bottom's reference size to the top so the two share a UV map.
+      bottomTextureSize.copy(topTextureSize);
     });
-    loadImageAsTexture(portraitBottomUrl, bottomTextureSize, (tex) => {
+    loadImageAsTexture(portraitBottomUrl, new THREE.Vector2(), (tex) => {
       displayMaterial.uniforms.uBottomTexture.value = tex;
-      bottomReady = true;
+      // Do NOT update bottomTextureSize here — it mirrors topTextureSize.
     });
-    // touched so eslint doesn't complain about unused — they're status flags
-    // for any future spinner; the render loop runs regardless.
-    void topReady;
-    void bottomReady;
 
     /* ----- input ----- */
     function rectOf(): DOMRect {
