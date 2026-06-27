@@ -19,11 +19,11 @@ export function Landing() {
       <Header />
 
       {/* Hero — portrait stage on top, copy band below, never overlapping */}
-      <section style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', background: '#F1F1F1', display: 'flex', flexDirection: 'column' }}>
-        {/* Portrait stage — takes whatever vertical space is left between
-            the header and the copy band; the canvas inside uses cover-fit so
-            it always fills the stage with no letterboxing. */}
-        <div style={{ position: 'relative', flex: 1, minHeight: 'min(560px, 60vh)' }}>
+      <section style={{ position: 'relative', overflow: 'hidden', background: '#F1F1F1', display: 'flex', flexDirection: 'column' }}>
+        {/* Portrait stage — locked to a predictable height range so the hero
+            looks the same whether DevTools is open or not. Cover-fit inside
+            the canvas keeps the image edge-to-edge with no letterboxing. */}
+        <div style={{ position: 'relative', height: 'clamp(540px, 70vh, 820px)', flex: '0 0 auto' }}>
           <HeroReveal />
 
           {/* Top metadata row — sits below the header */}

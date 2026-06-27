@@ -86,14 +86,14 @@ export function HeroReveal() {
       const drawW = natW * scale;
       const drawH = natH * scale;
 
-      // Face centre in the source image (measured from the uploaded portraits):
-      //   horizontally:  ~50% (centred subject)
-      //   vertically:    ~40% (face sits in the upper-middle, neck below it)
-      const faceCx = 0.50;
-      const faceCy = 0.40;
-
-      const x = W / 2 - drawW * faceCx;
-      const y = H / 2 - drawH * faceCy;
+      // Anchor the image centre to the canvas centre. With cover-fit, this
+      // crops top and bottom equally as the stage gets shorter than the
+      // image's natural aspect — keeping face *and* neck *and* turtleneck
+      // collar visible at every viewport. A vertical-only bias here would
+      // skew that balance: e.g. anchoring at 0.40 keeps the face high but
+      // eats the neck on tall stages.
+      const x = W / 2 - drawW * 0.50;
+      const y = H / 2 - drawH * 0.50;
 
       imgRect = { x, y, w: drawW, h: drawH };
     }
