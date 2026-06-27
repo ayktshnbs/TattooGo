@@ -1,279 +1,339 @@
 import { useEffect, useRef } from 'react';
-import portraitCleanUrl from '../assets/hero/clean.png';
-import portraitTattooedUrl from '../assets/hero/tattooed.png';  
+import * as THREE from 'three';
+import portraitTopUrl from '../assets/hero/clean.png';
+import portraitBottomUrl from '../assets/hero/tattooed.png';
+import { vertexShader, fluidFragmentShader, displayFragmentShader } from './heroShaders';
 
 /**
- * Editorial portrait reveal.
+ * Hero — full-viewport WebGL fluid-trail reveal.
  *
- *   Layer A (top, default visible)  — clean portrait, no tattoo.
- *   Layer B (bottom, revealed)      — same woman, full face tattoo.
+ * Architecture matches the project's hero specification verbatim:
+ *   - Three.js WebGLRenderer + OrthographicCamera + full-screen quad.
+ *   - Two ping-pong WebGLRenderTargets (simSize × simSize, Float RGBA)
+ *     hold the trail mask. Each frame we read from the previous target
+ *     and write to the next.
+ *   - fluidFragmentShader paints a soft line between prevMouse and mouse
+ *     into the mask, with a 0.97 decay multiplier on the prior frame.
+ *   - displayFragmentShader composites top + bottom + halo on screen.
+ *   - When the user is idle (> idleThresholdMs), a synthetic cursor
+ *     drifts on layered incommensurate sines and is written into the
+ *     same uniforms the real cursor uses.
  *
- * A feathered cursor mask erases the top so the tattooed version reads
- * through. The mask decays (~1.4s) so the tattoo softly disappears when
- * the cursor moves away. Both desktop and touch inputs supported.
- *
- * Implementation: one visible canvas + three offscreen canvases (the two
- * portrait images and the live mask). Two drawImage calls per frame, no
- * per-pixel work — performant on mobile.
- *
- * The portrait dominates the centre; the surrounding canvas is filled
- * with the soft cream + flowing-line background so the image blends
- * with the page regardless of viewport size.
+ * Wrapping the vanilla three logic in a React component lets the rest
+ * of the marketplace stay React-based; the inside of the effect is
+ * framework-agnostic.
  */
+const CONFIG = {
+  // Simulation render-target size (square, ping-pong)
+  simSize: 500,
+  // Trail mask falloff
+  decay: 0.97,
+  lineWidth: 0.09,
+  perFrameIntensity: 0.3,
+  // Reveal threshold (display shader)
+  revealThreshold: 0.02,
+  edgeWidthBase: 0.004, // divided by uDpr in shader
+  // Soft gray halo overlay (display shader)
+  haloUpperMul: 2.0, // halo upper bound = revealThreshold * this
+  haloMixStrength: 0.35,
+  haloGray: [0.12, 0.12, 0.12] as [number, number, number],
+  // Idle auto-trail
+  idleThresholdMs: 2500,
+  idleEaseInMs: 1500,
+  autoLerp: 0.05,
+  // Mouse stop detection
+  stopAfterMs: 50,
+  // Max texture size — downscale source images larger than this
+  maxTextureSize: 4096,
+};
+
 export function HeroReveal() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
-  const visibleRef = useRef<HTMLCanvasElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const wrap = wrapRef.current!;
-    const visible = visibleRef.current!;
-    const ctxV = visible.getContext('2d')!;
+    const canvas = canvasRef.current!;
 
-    const mask = document.createElement('canvas');
-    const topCompose = document.createElement('canvas');
-    const bgImg = document.createElement('canvas');
-    const ctxMask = mask.getContext('2d')!;
-    const ctxCompose = topCompose.getContext('2d')!;
-    const ctxBg = bgImg.getContext('2d')!;
+    /* ----- renderer + scene ----- */
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, precision: 'highp' });
+    renderer.setSize(wrap.clientWidth, wrap.clientHeight, false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 
-    const points: { x: number; y: number; t: number }[] = [];
-    let touched = false;
-    let raf = 0;
-    let dpr = Math.min(window.devicePixelRatio || 1, 2);
-    let W = 0, H = 0;
-    let ready = false;
+    const scene = new THREE.Scene();
+    const simScene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
-    // Where the portrait sits inside the canvas (CSS pixels).
-    // Both source images are drawn into this same rect — they have the
-    // same aspect (1.777) and the same face landmark ratios (top of head
-    // ~0.335, face centre ~0.58, chin ~0.825), measured by
-    // .claude/skills/run-tattoogo/probe-portraits.mjs. So drawing each
-    // image to imgRect makes the eyes/nose/mouth/lips align pixel-for-pixel
-    // even though the two source PNGs have different natural dimensions
-    // (clean is 1365×768, tattooed is 1672×941).
-    let imgRect = { x: 0, y: 0, w: 0, h: 0 };
-
-    const portraitClean = new Image();
-    const portraitTattooed = new Image();
-    portraitClean.crossOrigin = 'anonymous';
-    portraitTattooed.crossOrigin = 'anonymous';
-
-    let loaded = 0;
-    const onLoad = () => {
-      if (++loaded === 2) {
-        ready = true;
-        resize();
-        // One initial paint of the clean portrait; the RAF loop will only
-        // start when a trail point is added (via wake()).
-        if (W > 0 && H > 0) paintFrame();
-      }
+    /* ----- ping-pong render targets ----- */
+    const pingPongOpts: THREE.RenderTargetOptions = {
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      format: THREE.RGBAFormat,
+      type: THREE.FloatType,
     };
-    portraitClean.onload = onLoad;
-    portraitTattooed.onload = onLoad;
-    portraitClean.src = portraitCleanUrl;
-    portraitTattooed.src = portraitTattooedUrl;
+    const pingPong: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget] = [
+      new THREE.WebGLRenderTarget(CONFIG.simSize, CONFIG.simSize, pingPongOpts),
+      new THREE.WebGLRenderTarget(CONFIG.simSize, CONFIG.simSize, pingPongOpts),
+    ];
+    // Clear both once at startup so we don't sample undefined memory on the first frame.
+    pingPong.forEach((t) => {
+      renderer.setRenderTarget(t);
+      renderer.clear();
+    });
+    renderer.setRenderTarget(null);
+    let currentTarget = 0;
 
-    function sizeCanvas(c: HTMLCanvasElement, w: number, h: number) {
-      c.width = Math.floor(w * dpr);
-      c.height = Math.floor(h * dpr);
+    /* ----- mouse state ----- */
+    const mouse = new THREE.Vector2(0.5, 0.5);
+    const prevMouse = new THREE.Vector2(0.5, 0.5);
+    let isMoving = false;
+    let lastMoveTime = 0;
+
+    const autoMouse = new THREE.Vector2(0.5, 0.5);
+    const prevAutoMouse = new THREE.Vector2(0.5, 0.5);
+
+    /* ----- placeholder textures (used until images decode) ----- */
+    function solidTexture(hex: string): THREE.CanvasTexture {
+      const c = document.createElement('canvas');
+      c.width = c.height = 2;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = hex;
+      ctx.fillRect(0, 0, 2, 2);
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.generateMipmaps = false;
+      return tex;
     }
+    const topTexture = solidTexture('#0000ff');
+    const bottomTexture = solidTexture('#ff0000');
+    const topTextureSize = new THREE.Vector2(0, 0);
+    const bottomTextureSize = new THREE.Vector2(0, 0);
 
-    function computeImgRect() {
-      // Cover-fit. Scale uses the clean image's natural dimensions; the
-      // tattooed image gets scaled to the same drawW × drawH by drawImage
-      // and the aspect matches (1.777) so it isn't distorted.
-      //
-      // Anchor the IMAGE centre at the canvas centre. The face centre
-      // sits at ratio 0.58 in the source, so it lands slightly below
-      // visual centre — which leaves the top of the hair fully visible
-      // with breathing room above it, while keeping the chin and the
-      // start of the turtleneck in frame.
-      const natW = portraitClean.naturalWidth;
-      const natH = portraitClean.naturalHeight;
-      const scale = Math.max(W / natW, H / natH);
-      const drawW = natW * scale;
-      const drawH = natH * scale;
+    /* ----- shader materials ----- */
+    const dpr = renderer.getPixelRatio();
+    const resolutionVec = new THREE.Vector2(wrap.clientWidth * dpr, wrap.clientHeight * dpr);
 
-      const x = W / 2 - drawW * 0.50;
-      const y = H / 2 - drawH * 0.50;
+    const trailsMaterial = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader: fluidFragmentShader,
+      uniforms: {
+        uPrevTrails: { value: pingPong[currentTarget].texture },
+        uMouse: { value: mouse.clone() },
+        uPrevMouse: { value: prevMouse.clone() },
+        uResolution: { value: resolutionVec.clone() },
+        uDecay: { value: CONFIG.decay },
+        uIsMoving: { value: false },
+      },
+    });
 
-      imgRect = { x, y, w: drawW, h: drawH };
-    }
+    const displayMaterial = new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader: displayFragmentShader,
+      uniforms: {
+        uFluid: { value: pingPong[currentTarget].texture },
+        uTopTexture: { value: topTexture },
+        uBottomTexture: { value: bottomTexture },
+        uResolution: { value: resolutionVec.clone() },
+        uTopTextureSize: { value: topTextureSize },
+        uBottomTextureSize: { value: bottomTextureSize },
+        uDpr: { value: dpr },
+      },
+    });
 
-    function paintBg() {
-      const ctx = ctxBg;
-      ctx.fillStyle = '#F1F1F1';
-      ctx.fillRect(0, 0, W, H);
-    }
+    const planeGeo = new THREE.PlaneGeometry(2, 2);
+    const simMesh = new THREE.Mesh(planeGeo, trailsMaterial);
+    const displayMesh = new THREE.Mesh(planeGeo, displayMaterial);
+    simScene.add(simMesh);
+    scene.add(displayMesh);
 
-    function resize() {
-      const r = wrap.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return; // wait until parent has size
-      // Skip if nothing actually changed — prevents ResizeObserver feedback.
-      const newDpr = Math.min(window.devicePixelRatio || 1, 2);
-      if (r.width === W && r.height === H && newDpr === dpr) return;
-      W = r.width; H = r.height;
-      dpr = newDpr;
-      [visible, mask, topCompose, bgImg].forEach(c => sizeCanvas(c, W, H));
-      visible.style.width = W + 'px';
-      visible.style.height = H + 'px';
-      [ctxV, ctxMask, ctxCompose, ctxBg].forEach(ctx => ctx.setTransform(dpr, 0, 0, dpr, 0, 0));
-      paintBg();
-      computeImgRect();
-      // Repaint immediately after a resize so the clean portrait is
-      // visible even while idle.
-      if (ready) paintFrame();
-    }
-
-    function drawMaskFromPoints(now: number) {
-      // Fade existing mask alpha so trail decays smoothly.
-      ctxMask.save();
-      ctxMask.globalCompositeOperation = 'destination-in';
-      ctxMask.fillStyle = 'rgba(0,0,0,0.93)';
-      ctxMask.fillRect(0, 0, W, H);
-      ctxMask.restore();
-
-      for (let i = points.length - 1; i >= 0; i--) {
-        const p = points[i];
-        const age = now - p.t;
-        if (age > 1400) { points.splice(i, 1); continue; }
-        const a = 1 - age / 1400;
-        const radius = 120 + (1 - a) * 60;
-        const g = ctxMask.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius);
-        g.addColorStop(0, `rgba(0,0,0,${0.95 * a})`);
-        g.addColorStop(0.55, `rgba(0,0,0,${0.50 * a})`);
-        g.addColorStop(1, 'rgba(0,0,0,0)');
-        ctxMask.fillStyle = g;
-        ctxMask.beginPath();
-        ctxMask.arc(p.x, p.y, radius, 0, Math.PI * 2);
-        ctxMask.fill();
-      }
-    }
-
-    function paintFrame() {
-      // Compose: clean portrait, then erase under the mask so the tattooed
-      // version underneath bleeds through.
-      ctxCompose.clearRect(0, 0, W, H);
-      ctxCompose.drawImage(portraitClean, imgRect.x, imgRect.y, imgRect.w, imgRect.h);
-      ctxCompose.save();
-      ctxCompose.globalCompositeOperation = 'destination-out';
-      ctxCompose.drawImage(mask, 0, 0, W, H);
-      ctxCompose.restore();
-
-      // Paint: bg, then tattooed portrait, then composed clean-with-cutout.
-      // Both images are drawn into the same imgRect — each scales from its
-      // own natural dimensions, and shared face landmark ratios make the
-      // features overlap pixel-for-pixel where the mask reveals.
-      ctxV.clearRect(0, 0, W, H);
-      ctxV.drawImage(bgImg, 0, 0, W, H);
-      ctxV.drawImage(portraitTattooed, imgRect.x, imgRect.y, imgRect.w, imgRect.h);
-      ctxV.drawImage(topCompose, 0, 0, W, H);
-    }
-
-    /**
-     * Driven RAF — the loop only runs while there are active trail points
-     * (i.e. a reveal is in progress). When the trail empties, we paint one
-     * clean frame and stop, so the browser can go idle (and the screenshot
-     * tooling can settle). Any new input wakes the loop back up.
-     */
-    function frame() {
-      raf = 0;
-      if (!ready || W === 0 || H === 0) return;
-      const now = performance.now();
-      drawMaskFromPoints(now);
-      paintFrame();
-      if (points.length > 0) {
-        raf = requestAnimationFrame(frame);
-      } else {
-        // Trail empty — wipe the mask so no residual alpha bleeds the
-        // tattoo through, then paint one final clean frame.
-        ctxMask.save();
-        ctxMask.globalCompositeOperation = 'copy';
-        ctxMask.fillStyle = 'rgba(0,0,0,0)';
-        ctxMask.fillRect(0, 0, W, H);
-        ctxMask.restore();
-        paintFrame();
-      }
-    }
-
-    function wake() {
-      if (raf === 0 && ready && W !== 0 && H !== 0) {
-        raf = requestAnimationFrame(frame);
-      }
-    }
-
-    function pushPoint(x: number, y: number) {
-      const last = points[points.length - 1];
-      const now = performance.now();
-      if (last) {
-        const dx = x - last.x, dy = y - last.y;
-        const dist = Math.hypot(dx, dy);
-        const steps = Math.min(10, Math.ceil(dist / 22));
-        for (let s = 1; s <= steps; s++) {
-          points.push({ x: last.x + (dx * s) / steps, y: last.y + (dy * s) / steps, t: now });
+    /* ----- image loading with maxTextureSize clamp ----- */
+    function loadImageAsTexture(
+      url: string,
+      sizeVec: THREE.Vector2,
+      onReady: (tex: THREE.CanvasTexture) => void,
+    ) {
+      const img = new Image();
+      img.crossOrigin = 'Anonymous';
+      img.onload = () => {
+        let { naturalWidth: w, naturalHeight: h } = img;
+        let drawW = w;
+        let drawH = h;
+        if (Math.max(w, h) > CONFIG.maxTextureSize) {
+          const scale = CONFIG.maxTextureSize / Math.max(w, h);
+          drawW = Math.round(w * scale);
+          drawH = Math.round(h * scale);
         }
+        const off = document.createElement('canvas');
+        off.width = drawW;
+        off.height = drawH;
+        const ctx = off.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, drawW, drawH);
+        const tex = new THREE.CanvasTexture(off);
+        tex.minFilter = THREE.LinearFilter;
+        tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+        sizeVec.set(drawW, drawH);
+        onReady(tex);
+        // eslint-disable-next-line no-console
+        console.info(`[hero] loaded ${url} as ${drawW}×${drawH}`);
+      };
+      img.onerror = (e) => {
+        // eslint-disable-next-line no-console
+        console.warn(`[hero] failed to load ${url}`, e);
+      };
+      img.src = url;
+    }
+
+    let topReady = false;
+    let bottomReady = false;
+    loadImageAsTexture(portraitTopUrl, topTextureSize, (tex) => {
+      displayMaterial.uniforms.uTopTexture.value = tex;
+      topReady = true;
+    });
+    loadImageAsTexture(portraitBottomUrl, bottomTextureSize, (tex) => {
+      displayMaterial.uniforms.uBottomTexture.value = tex;
+      bottomReady = true;
+    });
+    // touched so eslint doesn't complain about unused — they're status flags
+    // for any future spinner; the render loop runs regardless.
+    void topReady;
+    void bottomReady;
+
+    /* ----- input ----- */
+    function rectOf(): DOMRect {
+      return canvas.getBoundingClientRect();
+    }
+    function setMouseFromClient(cx: number, cy: number) {
+      const r = rectOf();
+      // Coords in [0,1], y flipped to GL convention.
+      const x = (cx - r.left) / r.width;
+      const y = 1 - (cy - r.top) / r.height;
+      prevMouse.copy(mouse);
+      mouse.set(x, y);
+      isMoving = true;
+      lastMoveTime = performance.now();
+    }
+    function pointerInsideRect(cx: number, cy: number): boolean {
+      const r = rectOf();
+      return cx >= r.left && cx <= r.right && cy >= r.top && cy <= r.bottom;
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      if (pointerInsideRect(e.clientX, e.clientY)) {
+        setMouseFromClient(e.clientX, e.clientY);
       } else {
-        points.push({ x, y, t: now });
+        isMoving = false;
       }
-      wake();
+    }
+    function onTouchMove(e: TouchEvent) {
+      if (e.touches.length === 0) return;
+      const t = e.touches[0];
+      if (pointerInsideRect(t.clientX, t.clientY)) {
+        e.preventDefault();
+        setMouseFromClient(t.clientX, t.clientY);
+      } else {
+        isMoving = false;
+      }
     }
 
-    function onMove(e: MouseEvent | TouchEvent) {
-      const r = wrap.getBoundingClientRect();
-      const point = 'touches' in e ? e.touches[0] : e;
-      if (!point) return;
-      const x = point.clientX - r.left;
-      const y = point.clientY - r.top;
-      if (x < 0 || y < 0 || x > r.width || y > r.height) return;
-      touched = true;
-      pushPoint(x, y);
-    }
+    window.addEventListener('mousemove', onMouseMove, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
 
-    function onLeave() {
-      // Stop adding points — the existing trail decays naturally and the
-      // clean portrait returns. Touched flag persists so ambient drift
-      // does not restart.
+    /* ----- resize ----- */
+    function resize() {
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if (w === 0 || h === 0) return;
+      const newDpr = Math.min(window.devicePixelRatio || 1, 2);
+      renderer.setPixelRatio(newDpr);
+      renderer.setSize(w, h, false);
+      displayMaterial.uniforms.uResolution.value.set(w * newDpr, h * newDpr);
+      displayMaterial.uniforms.uDpr.value = newDpr;
+      trailsMaterial.uniforms.uResolution.value.set(w * newDpr, h * newDpr);
     }
-
-    const onResize = () => resize();
-    window.addEventListener('resize', onResize);
-    // ResizeObserver catches the case where the parent flex container
-    // had 0 height during the first effect tick (which gave us a 0x0
-    // canvas) and then settles to its final size on layout.
     const ro = new ResizeObserver(() => resize());
     ro.observe(wrap);
-    wrap.addEventListener('mousemove', onMove);
-    wrap.addEventListener('touchmove', onMove, { passive: true });
-    wrap.addEventListener('mouseleave', onLeave);
-    wrap.addEventListener('touchend', onLeave);
-
-    // Kick off layout immediately so background paints before images decode.
+    window.addEventListener('resize', resize);
     resize();
+
+    /* ----- render loop ----- */
+    let raf = 0;
+    function animate() {
+      raf = requestAnimationFrame(animate);
+      const now = performance.now();
+
+      // Drop isMoving if no movement for stopAfterMs.
+      if (isMoving && now - lastMoveTime > CONFIG.stopAfterMs) {
+        isMoving = false;
+      }
+      const idleTime = now - lastMoveTime;
+      const autoActive = idleTime > CONFIG.idleThresholdMs;
+
+      // Swap ping-pong
+      const prevTarget = pingPong[currentTarget];
+      currentTarget = (currentTarget + 1) % 2;
+      const writeTarget = pingPong[currentTarget];
+      trailsMaterial.uniforms.uPrevTrails.value = prevTarget.texture;
+
+      if (autoActive) {
+        // Idle auto-trail — layered incommensurate sines for an organic
+        // never-repeating path that stays inside the canvas. Easing in
+        // over idleEaseInMs prevents a sudden segment on first wake.
+        const easeIn = Math.min(1, (idleTime - CONFIG.idleThresholdMs) / CONFIG.idleEaseInMs);
+        const t = now * 0.001;
+        const targetX = 0.5 + 0.30 * Math.sin(t * 0.41) + 0.12 * Math.sin(t * 0.93 + 1.3);
+        const targetY = 0.5 + 0.28 * Math.cos(t * 0.37 + 0.5) + 0.10 * Math.cos(t * 1.11 + 2.7);
+        prevAutoMouse.copy(autoMouse);
+        autoMouse.x += (targetX - autoMouse.x) * CONFIG.autoLerp * easeIn;
+        autoMouse.y += (targetY - autoMouse.y) * CONFIG.autoLerp * easeIn;
+        trailsMaterial.uniforms.uMouse.value.copy(autoMouse);
+        trailsMaterial.uniforms.uPrevMouse.value.copy(prevAutoMouse);
+        trailsMaterial.uniforms.uIsMoving.value = true;
+        // Mirror onto mouse/prevMouse so the handoff to a real input
+        // doesn't draw a long stale segment.
+        mouse.copy(autoMouse);
+        prevMouse.copy(prevAutoMouse);
+      } else {
+        trailsMaterial.uniforms.uMouse.value.copy(mouse);
+        trailsMaterial.uniforms.uPrevMouse.value.copy(prevMouse);
+        trailsMaterial.uniforms.uIsMoving.value = isMoving;
+        // Mirror so the next idle cycle starts from the user's last position.
+        autoMouse.copy(mouse);
+        prevAutoMouse.copy(mouse);
+      }
+
+      renderer.setRenderTarget(writeTarget);
+      renderer.render(simScene, camera);
+
+      displayMaterial.uniforms.uFluid.value = writeTarget.texture;
+      renderer.setRenderTarget(null);
+      renderer.render(scene, camera);
+    }
+    animate();
 
     return () => {
       cancelAnimationFrame(raf);
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('resize', resize);
       ro.disconnect();
-      wrap.removeEventListener('mousemove', onMove);
-      wrap.removeEventListener('touchmove', onMove);
-      wrap.removeEventListener('mouseleave', onLeave);
-      wrap.removeEventListener('touchend', onLeave);
+      pingPong.forEach((t) => t.dispose());
+      planeGeo.dispose();
+      trailsMaterial.dispose();
+      displayMaterial.dispose();
+      topTexture.dispose();
+      bottomTexture.dispose();
+      renderer.dispose();
     };
   }, []);
 
   return (
-    <div ref={wrapRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden', cursor: 'crosshair', background: '#F1F1F1' }}>
+    <div ref={wrapRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden', background: '#F1F1F1' }}>
       <canvas
-        ref={visibleRef}
-        style={{
-          position: 'absolute',
-          inset: 0,
-          display: 'block',
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          objectPosition: 'center center',
-        }}
+        ref={canvasRef}
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', cursor: 'crosshair' }}
       />
     </div>
   );

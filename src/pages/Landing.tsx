@@ -18,61 +18,62 @@ export function Landing() {
     <>
       <Header />
 
-      {/* Hero — portrait stage on top, copy band below, never overlapping */}
-      <section style={{ position: 'relative', overflow: 'hidden', background: '#F1F1F1', display: 'flex', flexDirection: 'column' }}>
-        {/* Portrait stage — sized wide so the uploaded artwork fills without face zoom. */}
-        <div style={{ position: 'relative', height: 'clamp(520px, calc(100vw / 2.4), 820px)', flex: '0 0 auto' }}>
-          <HeroReveal />
+      {/* Hero — full-viewport WebGL fluid-trail reveal. The canvas is the
+          entire stage; copy overlays the bottom edge so the cursor reveals
+          the tattooed portrait beneath the clean portrait edge-to-edge.
+          This is the only theatrical motion moment on the site. */}
+      <section style={{ position: 'relative', height: '100vh', minHeight: 560, overflow: 'hidden', background: '#F1F1F1' }} className="hero">
+        <HeroReveal />
 
-          {/* Top metadata row — sits below the header */}
-          <div className="container" style={{ position: 'absolute', top: 96, left: 0, right: 0, zIndex: 2, pointerEvents: 'none' }}>
-            <div className="row between center">
-              <span className="mono" style={{ color: 'var(--ink)' }}>TG · 2026 · Edition №1</span>
-              <span className="mono row center" style={{ color: 'var(--ink)' }}>
-                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, background: 'var(--ink)', marginRight: 8 }} />
-                {lang === 'tr' ? 'İmleci hareket ettir' : 'Move cursor · reveal ink'}
-              </span>
-            </div>
-          </div>
-
-          {/* Side mono labels */}
-          <div style={{ position: 'absolute', left: 18, top: '50%', transform: 'translateY(-50%) rotate(-90deg)', transformOrigin: 'left center', zIndex: 2, pointerEvents: 'none' }}>
-            <span className="mono" style={{ color: 'var(--ink)' }}>—— surface · identity · ink</span>
-          </div>
-          <div style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%) rotate(90deg)', transformOrigin: 'right center', zIndex: 2, pointerEvents: 'none' }}>
-            <span className="mono" style={{ color: 'var(--ink)' }}>TR / EN · 01 · cover</span>
+        {/* Top metadata row — sits below the header */}
+        <div className="container" style={{ position: 'absolute', top: 96, left: 0, right: 0, zIndex: 2, pointerEvents: 'none' }}>
+          <div className="row between center">
+            <span className="mono" style={{ color: 'var(--ink)' }}>TG · 2026 · Edition №1</span>
+            <span className="mono row center" style={{ color: 'var(--ink)' }}>
+              <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, background: 'var(--ink)', marginRight: 8 }} />
+              {lang === 'tr' ? 'İmleci hareket ettir' : 'Move cursor · reveal ink'}
+            </span>
           </div>
         </div>
 
-        {/* Copy band — solid white, sits below the portrait, never crops the face */}
+        {/* Side mono labels */}
+        <div style={{ position: 'absolute', left: 18, top: '50%', transform: 'translateY(-50%) rotate(-90deg)', transformOrigin: 'left center', zIndex: 2, pointerEvents: 'none' }}>
+          <span className="mono" style={{ color: 'var(--ink)' }}>—— surface · identity · ink</span>
+        </div>
+        <div style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%) rotate(90deg)', transformOrigin: 'right center', zIndex: 2, pointerEvents: 'none' }}>
+          <span className="mono" style={{ color: 'var(--ink)' }}>TR / EN · 01 · cover</span>
+        </div>
+
+        {/* Copy overlay — sits at the bottom of the hero canvas. Click-through
+            disabled on the wrapper; re-enabled per element so the canvas behind
+            still receives mousemove from the empty space. */}
         <div
+          className="container"
           style={{
-            position: 'relative', zIndex: 3,
-            background: 'var(--paper)',
-            borderTop: '1px solid var(--hairline-strong)',
+            position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 3,
+            paddingBottom: 36, paddingTop: 28,
+            pointerEvents: 'none',
           }}
         >
-          <div className="container" style={{ paddingBlock: 32 }}>
-            <div className="row between" style={{ gap: 40, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div className="col" style={{ flex: '1 1 380px' }}>
-                <h1 className="display" style={{ fontSize: 'clamp(56px, 10vw, 156px)', margin: 0, color: 'var(--ink)', letterSpacing: '-0.04em', lineHeight: 0.86 }}>
-                  Tattoo<span className="italic">Go</span>
-                </h1>
-                <h2 className="display display-md" style={{ margin: '14px 0 0', color: 'var(--ink)', maxWidth: 540 }}>
-                  {lang === 'tr' ? 'Niyetle' : 'Ink,'} <span className="italic">{lang === 'tr' ? 'açığa çıkmış mürekkep.' : 'revealed with intention.'}</span>
-                </h2>
+          <div className="row between" style={{ gap: 40, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div className="col" style={{ flex: '1 1 380px', pointerEvents: 'auto' }}>
+              <h1 className="display" style={{ fontSize: 'clamp(56px, 10vw, 156px)', margin: 0, color: 'var(--ink)', letterSpacing: '-0.04em', lineHeight: 0.86 }}>
+                Tattoo<span className="italic">Go</span>
+              </h1>
+              <h2 className="display display-md" style={{ margin: '14px 0 0', color: 'var(--ink)', maxWidth: 540 }}>
+                {lang === 'tr' ? 'Niyetle' : 'Ink,'} <span className="italic">{lang === 'tr' ? 'açığa çıkmış mürekkep.' : 'revealed with intention.'}</span>
+              </h2>
+            </div>
+            <div className="col" style={{ flex: '0 1 440px', gap: 18, pointerEvents: 'auto' }}>
+              <p style={{ color: 'var(--muted)', margin: 0, fontSize: 15, maxWidth: 400 }}>{t('brand.intro')}</p>
+              <div className="row gap-3 wrap">
+                <Link to="/dashboard/create-request" className="btn btn-primary">{t('cta.createRequest')}<span className="dot" /></Link>
+                <Link to="/register" className="btn">{t('cta.joinAsArtist')}</Link>
               </div>
-              <div className="col" style={{ flex: '0 1 440px', gap: 18 }}>
-                <p style={{ color: 'var(--muted)', margin: 0, fontSize: 15, maxWidth: 400 }}>{t('brand.intro')}</p>
-                <div className="row gap-3 wrap">
-                  <Link to="/dashboard/create-request" className="btn btn-primary">{t('cta.createRequest')}<span className="dot" /></Link>
-                  <Link to="/register" className="btn">{t('cta.joinAsArtist')}</Link>
-                </div>
-                <div className="row gap-3 wrap" style={{ marginTop: 2 }}>
-                  <Badge label={t('badge.verified')} />
-                  <Badge label={t('badge.custom')} />
-                  <Badge label={t('badge.booking')} />
-                </div>
+              <div className="row gap-3 wrap" style={{ marginTop: 2 }}>
+                <Badge label={t('badge.verified')} />
+                <Badge label={t('badge.custom')} />
+                <Badge label={t('badge.booking')} />
               </div>
             </div>
           </div>
