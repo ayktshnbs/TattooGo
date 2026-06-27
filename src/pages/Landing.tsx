@@ -20,10 +20,8 @@ export function Landing() {
 
       {/* Hero — portrait stage on top, copy band below, never overlapping */}
       <section style={{ position: 'relative', overflow: 'hidden', background: '#F1F1F1', display: 'flex', flexDirection: 'column' }}>
-        {/* Portrait stage — locked to a predictable height range so the hero
-            looks the same whether DevTools is open or not. Cover-fit inside
-            the canvas keeps the image edge-to-edge with no letterboxing. */}
-        <div style={{ position: 'relative', height: 'clamp(540px, 70vh, 820px)', flex: '0 0 auto' }}>
+        {/* Portrait stage — sized wide so the uploaded artwork fills without face zoom. */}
+        <div style={{ position: 'relative', height: 'clamp(520px, calc(100vw / 2.4), 820px)', flex: '0 0 auto' }}>
           <HeroReveal />
 
           {/* Top metadata row — sits below the header */}

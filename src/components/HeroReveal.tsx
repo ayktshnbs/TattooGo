@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import portraitCleanUrl from '../assets/hero/portrait-clean.png';
-import portraitTattooedUrl from '../assets/hero/portrait-tattooed.png';
+import portraitCleanUrl from '../assets/hero/clean.png';
+import portraitTattooedUrl from '../assets/hero/tattooed.png';  
 
 /**
  * Editorial portrait reveal.
@@ -44,6 +44,13 @@ export function HeroReveal() {
     let ready = false;
 
     // Where the portrait sits inside the canvas (CSS pixels).
+    // Both source images are drawn into this same rect — they have the
+    // same aspect (1.777) and the same face landmark ratios (top of head
+    // ~0.335, face centre ~0.58, chin ~0.825), measured by
+    // .claude/skills/run-tattoogo/probe-portraits.mjs. So drawing each
+    // image to imgRect makes the eyes/nose/mouth/lips align pixel-for-pixel
+    // even though the two source PNGs have different natural dimensions
+    // (clean is 1365×768, tattooed is 1672×941).
     let imgRect = { x: 0, y: 0, w: 0, h: 0 };
 
     const portraitClean = new Image();
@@ -72,28 +79,23 @@ export function HeroReveal() {
     }
 
     function computeImgRect() {
-      // Cover-fit the image — no letterboxing at any viewport size — with
-      // the subject (face) positioned so it stays centred and prominent
-      // regardless of which dimension dictates the scale.
+      // Cover-fit. Scale uses the clean image's natural dimensions; the
+      // tattooed image gets scaled to the same drawW × drawH by drawImage
+      // and the aspect matches (1.777) so it isn't distorted.
       //
-      // We use Math.max so the image always overflows the canvas (cover).
-      // We then position via "object-position" semantics, anchored to the
-      // face centre in the source image rather than its geometric centre.
+      // Position the FACE centre (at vertical ratio 0.58 in the source —
+      // measured by probe-portraits.mjs) at the canvas vertical centre.
+      // This crops the top of the hair and the bottom of the turtleneck
+      // by an equal amount as the stage gets shorter, instead of eating
+      // only the bottom.
       const natW = portraitClean.naturalWidth;
       const natH = portraitClean.naturalHeight;
-
       const scale = Math.max(W / natW, H / natH);
       const drawW = natW * scale;
       const drawH = natH * scale;
 
-      // Anchor the image centre to the canvas centre. With cover-fit, this
-      // crops top and bottom equally as the stage gets shorter than the
-      // image's natural aspect — keeping face *and* neck *and* turtleneck
-      // collar visible at every viewport. A vertical-only bias here would
-      // skew that balance: e.g. anchoring at 0.40 keeps the face high but
-      // eats the neck on tall stages.
       const x = W / 2 - drawW * 0.50;
-      const y = H / 2 - drawH * 0.50;
+      const y = H / 2 - drawH * 0.58;
 
       imgRect = { x, y, w: drawW, h: drawH };
     }
@@ -159,6 +161,9 @@ export function HeroReveal() {
       ctxCompose.restore();
 
       // Paint: bg, then tattooed portrait, then composed clean-with-cutout.
+      // Both images are drawn into the same imgRect — each scales from its
+      // own natural dimensions, and shared face landmark ratios make the
+      // features overlap pixel-for-pixel where the mask reveals.
       ctxV.clearRect(0, 0, W, H);
       ctxV.drawImage(bgImg, 0, 0, W, H);
       ctxV.drawImage(portraitTattooed, imgRect.x, imgRect.y, imgRect.w, imgRect.h);
@@ -258,7 +263,18 @@ export function HeroReveal() {
 
   return (
     <div ref={wrapRef} style={{ position: 'absolute', inset: 0, overflow: 'hidden', cursor: 'crosshair', background: '#F1F1F1' }}>
-      <canvas ref={visibleRef} style={{ position: 'absolute', inset: 0, display: 'block' }} />
+      <canvas
+        ref={visibleRef}
+        style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          objectPosition: 'center center',
+        }}
+      />
     </div>
   );
 }
