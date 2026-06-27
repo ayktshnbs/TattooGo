@@ -83,11 +83,11 @@ export function HeroReveal() {
       // tattooed image gets scaled to the same drawW × drawH by drawImage
       // and the aspect matches (1.777) so it isn't distorted.
       //
-      // Position the FACE centre (at vertical ratio 0.58 in the source —
-      // measured by probe-portraits.mjs) at the canvas vertical centre.
-      // This crops the top of the hair and the bottom of the turtleneck
-      // by an equal amount as the stage gets shorter, instead of eating
-      // only the bottom.
+      // Anchor the IMAGE centre at the canvas centre. The face centre
+      // sits at ratio 0.58 in the source, so it lands slightly below
+      // visual centre — which leaves the top of the hair fully visible
+      // with breathing room above it, while keeping the chin and the
+      // start of the turtleneck in frame.
       const natW = portraitClean.naturalWidth;
       const natH = portraitClean.naturalHeight;
       const scale = Math.max(W / natW, H / natH);
@@ -95,7 +95,7 @@ export function HeroReveal() {
       const drawH = natH * scale;
 
       const x = W / 2 - drawW * 0.50;
-      const y = H / 2 - drawH * 0.58;
+      const y = H / 2 - drawH * 0.50;
 
       imgRect = { x, y, w: drawW, h: drawH };
     }
