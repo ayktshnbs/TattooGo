@@ -238,12 +238,7 @@ export function HeroReveal() {
       bottomTextureSize,
       (tex) => {
         displayMaterial.uniforms.uBottomTexture.value = tex;
-      },
-      {
-        offsetY: 32,
-        scale: 0.98,
-      },
-    );
+      },);
 
     /* ----- input ----- */
     function rectOf(): DOMRect {
