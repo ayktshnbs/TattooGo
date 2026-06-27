@@ -35,14 +35,15 @@ node --version    # confirmed working on v20+
 
 ## Setup
 
-The lockfile pins `vite@^8.1.0` against `@vitejs/plugin-react@^4.3.1`;
-plugin-react 4.x only declares peer support up to Vite 5/6, so npm
-errors on install without `--legacy-peer-deps`. The runtime works fine
-either way.
-
 ```bash
-npm install --legacy-peer-deps
+npm install
 ```
+
+`@vitejs/plugin-react@5` peer-supports `vite@8`, so a plain `npm install`
+resolves cleanly. If you ever see an ERESOLVE on this combo, check that
+the plugin pin in `package.json` is still `^5.0.0` (it was previously
+`^4.3.1`, which only declared support up to Vite 7 and required
+`--legacy-peer-deps`).
 
 No env vars are required. There is no backend — all data is mocked in
 `src/data/mock.ts`.
@@ -152,10 +153,10 @@ returns 200 + an HTML shell.
 
 ## Gotchas
 
-- **Vite 8 + `@vitejs/plugin-react@4` peer conflict.** Use
-  `npm install --legacy-peer-deps`. Upgrading plugin-react requires
-  switching to `@vitejs/plugin-react-oxc`, which Vite 8 logs as a
-  recommendation but does not require.
+- **Vite 8 peer dep.** Use `@vitejs/plugin-react@^5.0.0` — plugin v4
+  only declares peer support up to Vite 7 and CI deploys ERESOLVE on
+  it. The runtime is the same; only the peer range changed. Don't
+  downgrade Vite back to 7 just to satisfy plugin v4.
 - **`vite.config.ts` previously had `open: true`** — that exits the
   dev server in headless environments when the browser-open fails.
   It's already removed; don't add it back.
