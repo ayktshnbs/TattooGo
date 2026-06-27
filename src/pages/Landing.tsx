@@ -20,8 +20,10 @@ export function Landing() {
 
       {/* Hero — portrait stage on top, copy band below, never overlapping */}
       <section style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden', background: '#F1F1F1', display: 'flex', flexDirection: 'column' }}>
-        {/* Portrait stage — fills the available vertical space above the copy band */}
-        <div style={{ position: 'relative', flex: 1, minHeight: 0 }}>
+        {/* Portrait stage — takes whatever vertical space is left between
+            the header and the copy band; the canvas inside uses cover-fit so
+            it always fills the stage with no letterboxing. */}
+        <div style={{ position: 'relative', flex: 1, minHeight: 'min(560px, 60vh)' }}>
           <HeroReveal />
 
           {/* Top metadata row — sits below the header */}

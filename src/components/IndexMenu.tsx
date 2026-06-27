@@ -89,6 +89,18 @@ export function IndexMenu({ open, onClose }: Props) {
             × {lang === 'tr' ? 'Kapat' : 'Close'}
           </button>
         </div>
+        <div className="row gap-3 wrap" style={{ marginBottom: 36 }}>
+          <Link to="/dashboard/create-request" className="btn btn-primary">
+            {lang === 'tr' ? 'Dövme isteği oluştur' : 'Create tattoo request'}
+          </Link>
+          <Link to="/register" className="btn">
+            {lang === 'tr' ? 'Sanatçı olarak katıl' : 'Join as artist'}
+          </Link>
+          <Link to="/login" className="btn btn-ghost">
+            {lang === 'tr' ? 'Giriş' : 'Log in'}
+          </Link>
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 48 }}>
           {COLUMNS.map(col => (
             <div key={col.label} className="col" style={{ gap: 14 }}>

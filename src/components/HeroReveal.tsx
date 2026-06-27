@@ -52,7 +52,15 @@ export function HeroReveal() {
     portraitTattooed.crossOrigin = 'anonymous';
 
     let loaded = 0;
-    const onLoad = () => { if (++loaded === 2) { ready = true; resize(); raf = requestAnimationFrame(frame); } };
+    const onLoad = () => {
+      if (++loaded === 2) {
+        ready = true;
+        resize();
+        // One initial paint of the clean portrait; the RAF loop will only
+        // start when a trail point is added (via wake()).
+        if (W > 0 && H > 0) paintFrame();
+      }
+    };
     portraitClean.onload = onLoad;
     portraitTattooed.onload = onLoad;
     portraitClean.src = portraitCleanUrl;
@@ -64,20 +72,29 @@ export function HeroReveal() {
     }
 
     function computeImgRect() {
-      const aspect = portraitClean.naturalWidth / portraitClean.naturalHeight; // ~1.78 wide
-      // We want the portrait to fill the visible area, biased so the face
-      // sits in the upper-middle of the canvas (the bottom CTA band overlays
-      // the lower portion of the canvas, so anchoring the face up keeps it
-      // centred visually).
-      let drawH = H;
-      let drawW = drawH * aspect;
-      if (drawW < W) {
-        drawW = W;
-        drawH = drawW / aspect;
-      }
-      // Bias the image slightly up so the face is centred above the CTA band.
-      const x = (W - drawW) / 2;
-      const y = -drawH * 0.04;
+      // Cover-fit the image — no letterboxing at any viewport size — with
+      // the subject (face) positioned so it stays centred and prominent
+      // regardless of which dimension dictates the scale.
+      //
+      // We use Math.max so the image always overflows the canvas (cover).
+      // We then position via "object-position" semantics, anchored to the
+      // face centre in the source image rather than its geometric centre.
+      const natW = portraitClean.naturalWidth;
+      const natH = portraitClean.naturalHeight;
+
+      const scale = Math.max(W / natW, H / natH);
+      const drawW = natW * scale;
+      const drawH = natH * scale;
+
+      // Face centre in the source image (measured from the uploaded portraits):
+      //   horizontally:  ~50% (centred subject)
+      //   vertically:    ~40% (face sits in the upper-middle, neck below it)
+      const faceCx = 0.50;
+      const faceCy = 0.40;
+
+      const x = W / 2 - drawW * faceCx;
+      const y = H / 2 - drawH * faceCy;
+
       imgRect = { x, y, w: drawW, h: drawH };
     }
 
@@ -89,14 +106,21 @@ export function HeroReveal() {
 
     function resize() {
       const r = wrap.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return; // wait until parent has size
+      // Skip if nothing actually changed — prevents ResizeObserver feedback.
+      const newDpr = Math.min(window.devicePixelRatio || 1, 2);
+      if (r.width === W && r.height === H && newDpr === dpr) return;
       W = r.width; H = r.height;
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = newDpr;
       [visible, mask, topCompose, bgImg].forEach(c => sizeCanvas(c, W, H));
       visible.style.width = W + 'px';
       visible.style.height = H + 'px';
       [ctxV, ctxMask, ctxCompose, ctxBg].forEach(ctx => ctx.setTransform(dpr, 0, 0, dpr, 0, 0));
       paintBg();
       computeImgRect();
+      // Repaint immediately after a resize so the clean portrait is
+      // visible even while idle.
+      if (ready) paintFrame();
     }
 
     function drawMaskFromPoints(now: number) {
@@ -124,11 +148,7 @@ export function HeroReveal() {
       }
     }
 
-    function frame() {
-      if (!ready) { raf = requestAnimationFrame(frame); return; }
-      const now = performance.now();
-      drawMaskFromPoints(now);
-
+    function paintFrame() {
       // Compose: clean portrait, then erase under the mask so the tattooed
       // version underneath bleeds through.
       ctxCompose.clearRect(0, 0, W, H);
@@ -143,8 +163,38 @@ export function HeroReveal() {
       ctxV.drawImage(bgImg, 0, 0, W, H);
       ctxV.drawImage(portraitTattooed, imgRect.x, imgRect.y, imgRect.w, imgRect.h);
       ctxV.drawImage(topCompose, 0, 0, W, H);
+    }
 
-      raf = requestAnimationFrame(frame);
+    /**
+     * Driven RAF — the loop only runs while there are active trail points
+     * (i.e. a reveal is in progress). When the trail empties, we paint one
+     * clean frame and stop, so the browser can go idle (and the screenshot
+     * tooling can settle). Any new input wakes the loop back up.
+     */
+    function frame() {
+      raf = 0;
+      if (!ready || W === 0 || H === 0) return;
+      const now = performance.now();
+      drawMaskFromPoints(now);
+      paintFrame();
+      if (points.length > 0) {
+        raf = requestAnimationFrame(frame);
+      } else {
+        // Trail empty — wipe the mask so no residual alpha bleeds the
+        // tattoo through, then paint one final clean frame.
+        ctxMask.save();
+        ctxMask.globalCompositeOperation = 'copy';
+        ctxMask.fillStyle = 'rgba(0,0,0,0)';
+        ctxMask.fillRect(0, 0, W, H);
+        ctxMask.restore();
+        paintFrame();
+      }
+    }
+
+    function wake() {
+      if (raf === 0 && ready && W !== 0 && H !== 0) {
+        raf = requestAnimationFrame(frame);
+      }
     }
 
     function pushPoint(x: number, y: number) {
@@ -160,6 +210,7 @@ export function HeroReveal() {
       } else {
         points.push({ x, y, t: now });
       }
+      wake();
     }
 
     function onMove(e: MouseEvent | TouchEvent) {
@@ -181,40 +232,23 @@ export function HeroReveal() {
 
     const onResize = () => resize();
     window.addEventListener('resize', onResize);
+    // ResizeObserver catches the case where the parent flex container
+    // had 0 height during the first effect tick (which gave us a 0x0
+    // canvas) and then settles to its final size on layout.
+    const ro = new ResizeObserver(() => resize());
+    ro.observe(wrap);
     wrap.addEventListener('mousemove', onMove);
     wrap.addEventListener('touchmove', onMove, { passive: true });
     wrap.addEventListener('mouseleave', onLeave);
     wrap.addEventListener('touchend', onLeave);
-
-    // One-shot demo sweep on load — a single graceful arc across the face
-    // hints at the interaction, then we stop. After this, the surface stays
-    // clean until the cursor enters.
-    let demoStart = 0;
-    let demoDone = false;
-    const driftId = window.setInterval(() => {
-      if (touched || !ready || demoDone) return;
-      if (!demoStart) demoStart = performance.now();
-      const elapsed = performance.now() - demoStart;
-      const dur = 1800;
-      if (elapsed > dur + 400) { demoDone = true; return; }
-      const t = Math.min(1, elapsed / dur);
-      const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
-      const cx = imgRect.x + imgRect.w * 0.5;
-      const cy = imgRect.y + imgRect.h * 0.42;
-      // Sweep left-to-right across the face with a gentle arc
-      const span = imgRect.w * 0.30;
-      const x = cx - span / 2 + ease * span;
-      const y = cy - Math.sin(ease * Math.PI) * imgRect.h * 0.05;
-      pushPoint(x, y);
-    }, 32);
 
     // Kick off layout immediately so background paints before images decode.
     resize();
 
     return () => {
       cancelAnimationFrame(raf);
-      window.clearInterval(driftId);
       window.removeEventListener('resize', onResize);
+      ro.disconnect();
       wrap.removeEventListener('mousemove', onMove);
       wrap.removeEventListener('touchmove', onMove);
       wrap.removeEventListener('mouseleave', onLeave);
