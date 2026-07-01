@@ -25,6 +25,22 @@ export function Landing() {
       <section style={{ position: 'relative', height: '100vh', minHeight: 560, overflow: 'hidden', background: '#F1F1F1' }} className="hero">
         <HeroReveal />
 
+        {/* Legibility scrim — a soft dark vignette anchored to the bottom of the
+            canvas. It sits above the WebGL stage but beneath the copy, so the
+            cream headline reads cleanly over BOTH the light (clean portrait) and
+            dark (revealed tattoo) states without heavy per-glyph shadows. The
+            gradient stays transparent through the upper ~55% so the model's face
+            and the cursor-reveal remain untouched. */}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0, height: '78%',
+            zIndex: 1, pointerEvents: 'none',
+            background:
+              'linear-gradient(to top, rgba(0,0,0,0.68) 0%, rgba(0,0,0,0.52) 22%, rgba(0,0,0,0.34) 42%, rgba(0,0,0,0.14) 60%, transparent 80%)',
+          }}
+        />
+
         {/* Top metadata row — sits below the header */}
         <div className="container" style={{ position: 'absolute', top: 96, left: 0, right: 0, zIndex: 2, pointerEvents: 'none' }}>
           <div className="row">
@@ -45,10 +61,10 @@ export function Landing() {
         >
           <div className="row between" style={{ gap: 40, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div className="col" style={{ flex: '1 1 380px', pointerEvents: 'auto' }}>
-              <h1 className="display" style={{ fontSize: 'clamp(56px, 10vw, 156px)', margin: 0, color: '#F5F2EB', textShadow: '0 12px 48px rgba(0,0,0,1), 0 4px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.4)', letterSpacing: '-0.04em', lineHeight: 0.86 }}>
+              <h1 className="display" style={{ fontSize: 'clamp(56px, 10vw, 156px)', margin: 0, color: '#F5F2EB', textShadow: '0 2px 24px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.4)', letterSpacing: '-0.04em', lineHeight: 0.86 }}>
                 Tattoo<span className="italic">Go</span>
               </h1>
-              <h2 className="display display-md" style={{ margin: '14px 0 0', color: '#F5F2EB', textShadow: '0 15px 30px rgba(0,0,0,1), 0 2px 8px rgba(0,0,0,0.6)', maxWidth: 540 }}>
+              <h2 className="display display-md" style={{ margin: '14px 0 0', color: '#F5F2EB', textShadow: '0 2px 20px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)', maxWidth: 540 }}>
                 {lang === 'tr' ? 'Bir amaçla' : 'Ink,'} <span className="italic">{lang === 'tr' ? 'tene kazınan mürekkep.' : 'revealed with intention.'}</span>
               </h2>
             </div>
