@@ -4,8 +4,7 @@ import { Footer } from '../components/Footer';
 import { Marquee } from '../components/Marquee';
 import { HeroReveal } from '../components/HeroReveal';
 import { SectionHeader } from '../components/SectionHeader';
-import { ArtistCard, RequestCard, TattooCard } from '../components/Cards';
-import { ARTISTS, DESIGNS, REQUESTS, STYLES, SECTION_NUMBERS } from '../data/mock';
+import { ARTISTS, DESIGNS, SECTION_NUMBERS } from '../data/mock';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
 import { Swatch, BackgroundPattern } from '../components/Visual';
@@ -69,9 +68,6 @@ export function Landing() {
               </h2>
             </div>
             <div className="col" style={{ flex: '0 1 440px', gap: 18, pointerEvents: 'auto' }}>
-              <div className="hero-intro" style={{ maxWidth: 400 }}>
-                <p style={{ color: '#F5F2EB', margin: 0, fontSize: 15 }}>{t('brand.intro')}</p>
-              </div>
               <div className="row gap-3 wrap">
                 <Link to="/dashboard/create-request" className="btn btn-primary">{t('cta.createRequest')}<span className="dot" /></Link>
                 <Link to="/register" className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
@@ -105,7 +101,6 @@ export function Landing() {
             eyebrow={lang === 'tr' ? 'Hakkında' : 'About'}
             title={lang === 'tr' ? 'Seçilmiş' : 'A curated'}
             italic={lang === 'tr' ? 'bir dövme pazarı.' : 'tattoo marketplace.'}
-            description={t('section.about.body')}
           />
           <div className="editorial-split reveal" style={{ marginTop: 60 }}>
             <div>
@@ -118,7 +113,6 @@ export function Landing() {
             <div className="col" style={{ alignSelf: 'flex-end', width: '100%' }}>
               <Stat label={lang === 'tr' ? 'Onaylı sanatçı' : 'Verified artists'} value="412" />
               <Stat label={lang === 'tr' ? 'Tamamlanan randevu' : 'Bookings completed'} value="2,184" />
-              <Stat label={lang === 'tr' ? 'Sözleşmeye dayalı teklif' : 'Contracted offers'} value="9,206" />
               <Stat label={lang === 'tr' ? 'Ortalama yanıt süresi' : 'Median first reply'} value="38 min" />
             </div>
           </div>
@@ -154,32 +148,7 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 03 Styles */}
-      <section className="section">
-        <div className="container">
-          <SectionHeader
-            num={SECTION_NUMBERS.styles}
-            eyebrow={lang === 'tr' ? 'Stiller' : 'Styles'}
-            title={lang === 'tr' ? 'İncelenmiş' : 'Considered'}
-            italic={lang === 'tr' ? 'dövme stilleri.' : 'tattoo styles.'}
-            description={lang === 'tr'
-              ? 'TattooGo, sanatçıları stillerine göre kategorize eder — böylece daha hızlı doğru kişiye ulaşırsınız.'
-              : 'TattooGo categorises artists by style — so the right hand reaches you sooner.'}
-          />
-          <div className="col" style={{ marginTop: 60, borderTop: '1px solid var(--hairline)' }}>
-            {STYLES.map((s, i) => (
-              <Link key={s.key} to="/designs" className="reveal ledger-row" style={{ padding: 'clamp(32px, 5vw, 64px) 0', borderBottom: '1px solid var(--hairline)' }}>
-                <span className="display" style={{ fontSize: 'clamp(40px, 7vw, 110px)', lineHeight: 0.8, letterSpacing: '-0.02em' }}>{s[lang]}</span>
-                <div className="row center gap-4">
-                  <span className="mono text-muted" style={{ fontSize: 14 }}>/{String(i + 1).padStart(2, '0')}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 04 Selected artists */}
+      {/* 03 Selected artists */}
       <section className="section" style={{ background: 'var(--paper-warm)' }}>
         <div className="container">
           <SectionHeader
@@ -208,7 +177,7 @@ export function Landing() {
             </div>
             {/* Artist Ledger */}
             <div className="col" style={{ borderTop: '1px solid var(--hairline)' }}>
-              {ARTISTS.slice(1, 6).map((a, i) => (
+              {ARTISTS.slice(1, 4).map((a, i) => (
                 <Link key={a.id} to="/artists" className="reveal ledger-row" style={{ padding: '32px 0', ['--delay' as any]: `${i * 60}ms` }}>
                   <div className="col gap-2">
                     <span className="display" style={{ fontSize: 32, margin: 0 }}>{a.name}</span>
@@ -225,37 +194,7 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 05 Recent requests */}
-      <section className="section">
-        <div className="container">
-          <SectionHeader
-            num={SECTION_NUMBERS.requests}
-            eyebrow={lang === 'tr' ? 'Müşteriler' : 'Customers'}
-            title={lang === 'tr' ? 'Güncel' : 'Recent'}
-            italic={lang === 'tr' ? 'dövme istekleri.' : 'customer briefs.'}
-            description={lang === 'tr'
-              ? 'Sanatçılar bu açık brief’lere bu hafta teklif veriyor.'
-              : 'Artists are sending offers on these open briefs this week.'}
-          />
-          <div className="col" style={{ marginTop: 60, borderTop: '1px solid var(--hairline)' }}>
-            {REQUESTS.slice(0, 4).map((r, i) => (
-              <Link key={r.id} to={`/dashboard/request/${r.id}`} className="reveal ledger-row" style={{ padding: 'clamp(32px, 5vw, 56px) 0', alignItems: 'center', ['--delay' as any]: `${i * 60}ms` }}>
-                <div className="col gap-2" style={{ flex: 1, paddingRight: 20 }}>
-                   <span className="mono text-accent">#{r.id.toUpperCase()} · {r.status}</span>
-                   <span className="display" style={{ fontSize: 'clamp(28px, 4vw, 44px)', margin: '8px 0 0', lineHeight: 1.1 }}>{r.title}</span>
-                   <span className="mono text-muted" style={{ marginTop: 4 }}>{r.style} · {r.placement} · {r.city}</span>
-                </div>
-                <div className="col gap-2" style={{ alignItems: 'flex-end', flexShrink: 0 }}>
-                   <span className="mono" style={{ fontSize: 13 }}>₺{r.budgetMin.toLocaleString()} – ₺{r.budgetMax.toLocaleString()}</span>
-                   <span className="mono text-muted">{r.offerCount} {lang === 'tr' ? 'teklif' : 'offers'}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 06 Trust */}
+      {/* 04 Trust */}
       <section className="section" style={{ background: 'var(--paper-warm)' }}>
         <div className="container">
           <SectionHeader
@@ -268,7 +207,6 @@ export function Landing() {
               [t('trust.verified.title'), t('trust.verified.body')],
               [t('trust.reviews.title'),  t('trust.reviews.body')],
               [t('trust.booking.title'),  t('trust.booking.body')],
-              [t('trust.hygiene.title'),  t('trust.hygiene.body')],
             ] as const).map(([ttl, body], i) => (
               <div key={ttl} className="reveal ledger-row" style={{ padding: 'clamp(40px, 6vw, 80px) 0', alignItems: 'flex-start', cursor: 'default', ['--delay' as any]: `${i * 60}ms` }}>
                 <div className="col" style={{ flexShrink: 0, width: 'clamp(80px, 12vw, 180px)' }}>
@@ -295,7 +233,7 @@ export function Landing() {
           />
         </div>
         <div className="moodboard" style={{ marginTop: 60 }}>
-          {DESIGNS.slice(0, 12).map((d, i) => (
+          {DESIGNS.slice(0, 8).map((d, i) => (
             <Link key={d.id} to="/designs" className="moodboard-cell reveal" style={{ ['--delay' as any]: `${(i % 4) * 60}ms` }}>
               <Swatch id={d.swatch} ratio={d.imageRatio} />
               <div className="moodboard-caption">
