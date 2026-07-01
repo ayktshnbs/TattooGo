@@ -27,21 +27,9 @@ export function Landing() {
 
         {/* Top metadata row — sits below the header */}
         <div className="container" style={{ position: 'absolute', top: 96, left: 0, right: 0, zIndex: 2, pointerEvents: 'none' }}>
-          <div className="row between center">
-            <span className="mono" style={{ color: 'var(--ink)' }}>TG · 2026 · Edition №1</span>
-            <span className="mono row center" style={{ color: 'var(--ink)' }}>
-              <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, background: 'var(--ink)', marginRight: 8 }} />
-              {lang === 'tr' ? 'İmleci hareket ettir' : 'Move cursor · reveal ink'}
-            </span>
+          <div className="row">
+            <span className="mono hero-chip">TG · 2026 · Edition №1</span>
           </div>
-        </div>
-
-        {/* Side mono labels */}
-        <div style={{ position: 'absolute', left: 18, top: '50%', transform: 'translateY(-50%) rotate(-90deg)', transformOrigin: 'left center', zIndex: 2, pointerEvents: 'none' }}>
-          <span className="mono" style={{ color: 'var(--ink)' }}>—— surface · identity · ink</span>
-        </div>
-        <div style={{ position: 'absolute', right: 18, top: '50%', transform: 'translateY(-50%) rotate(90deg)', transformOrigin: 'right center', zIndex: 2, pointerEvents: 'none' }}>
-          <span className="mono" style={{ color: 'var(--ink)' }}>TR / EN · 01 · cover</span>
         </div>
 
         {/* Copy overlay — sits at the bottom of the hero canvas. Click-through
@@ -65,10 +53,10 @@ export function Landing() {
               </h2>
             </div>
             <div className="col" style={{ flex: '0 1 440px', gap: 18, pointerEvents: 'auto' }}>
-              <p style={{ color: 'var(--muted)', margin: 0, fontSize: 15, maxWidth: 400 }}>{t('brand.intro')}</p>
+              <p style={{ color: '#F5F2EB', textShadow: '0 4px 16px rgba(0,0,0,0.55), 0 1px 4px rgba(0,0,0,0.5)', margin: 0, fontSize: 15, maxWidth: 400 }}>{t('brand.intro')}</p>
               <div className="row gap-3 wrap">
                 <Link to="/dashboard/create-request" className="btn btn-primary">{t('cta.createRequest')}<span className="dot" /></Link>
-                <Link to="/register" className="btn">{t('cta.joinAsArtist')}</Link>
+                <Link to="/register" className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
               </div>
               <div className="row gap-3 wrap" style={{ marginTop: 2 }}>
                 <Badge label={t('badge.verified')} />
@@ -334,16 +322,8 @@ export function Landing() {
 
 function Badge({ label }: { label: string }) {
   return (
-    <span
-      className="row center gap-2 mono"
-      style={{
-        padding: '6px 12px',
-        border: '1px solid var(--hairline-strong)',
-        borderRadius: 999,
-        color: 'var(--ink)',
-      }}
-    >
-      <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--ink)' }} />
+    <span className="row center gap-2 mono hero-badge">
+      <span style={{ width: 6, height: 6, borderRadius: 999, background: 'currentColor' }} />
       {label}
     </span>
   );
