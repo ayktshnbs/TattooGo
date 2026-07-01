@@ -505,6 +505,14 @@ input, textarea, select { font: inherit; color: inherit; }
   -webkit-backdrop-filter: blur(10px);
   color: #F5F2EB;
 }
+.hero-intro {
+  display: inline-block;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: rgba(20, 18, 16, 0.32);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
 .hero-badge {
   padding: 6px 12px;
   border-radius: 999px;

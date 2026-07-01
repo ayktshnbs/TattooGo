@@ -45,15 +45,17 @@ export function Landing() {
         >
           <div className="row between" style={{ gap: 40, alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <div className="col" style={{ flex: '1 1 380px', pointerEvents: 'auto' }}>
-              <h1 className="display" style={{ fontSize: 'clamp(56px, 10vw, 156px)', margin: 0, color: '#F5F2EB', textShadow: '0 12px 48px rgba(0,0,0,3), 0 4px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.4)', letterSpacing: '-0.04em', lineHeight: 0.86 }}>
+              <h1 className="display" style={{ fontSize: 'clamp(56px, 10vw, 156px)', margin: 0, color: '#F5F2EB', textShadow: '0 12px 48px rgba(0,0,0,1), 0 4px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.4)', letterSpacing: '-0.04em', lineHeight: 0.86 }}>
                 Tattoo<span className="italic">Go</span>
               </h1>
-              <h2 className="display display-md" style={{ margin: '14px 0 0', color: '#F5F2EB', textShadow: '0 15px 30px rgba(0,0,0,4), 0 2px 8px rgba(0,0,0,0.6)', maxWidth: 540 }}>
+              <h2 className="display display-md" style={{ margin: '14px 0 0', color: '#F5F2EB', textShadow: '0 15px 30px rgba(0,0,0,1), 0 2px 8px rgba(0,0,0,0.6)', maxWidth: 540 }}>
                 {lang === 'tr' ? 'Bir amaçla' : 'Ink,'} <span className="italic">{lang === 'tr' ? 'tene kazınan mürekkep.' : 'revealed with intention.'}</span>
               </h2>
             </div>
             <div className="col" style={{ flex: '0 1 440px', gap: 18, pointerEvents: 'auto' }}>
-              <p style={{ color: '#F5F2EB', textShadow: '0 4px 16px rgba(0,0,0,0.55), 0 1px 4px rgba(0,0,0,0.5)', margin: 0, fontSize: 15, maxWidth: 400 }}>{t('brand.intro')}</p>
+              <div className="hero-intro" style={{ maxWidth: 400 }}>
+                <p style={{ color: '#F5F2EB', margin: 0, fontSize: 15 }}>{t('brand.intro')}</p>
+              </div>
               <div className="row gap-3 wrap">
                 <Link to="/dashboard/create-request" className="btn btn-primary">{t('cta.createRequest')}<span className="dot" /></Link>
                 <Link to="/register" className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
