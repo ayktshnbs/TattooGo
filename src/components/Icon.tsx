@@ -55,30 +55,44 @@ const ICON_MAP: Record<IconName, number | null> = {
 
 function sanitize(svg: string): string {
   let out = svg;
-  // strip XML / comments
   out = out.replace(/<\?xml[^>]*\?>/g, '');
   out = out.replace(/<!--[\s\S]*?-->/g, '');
-  // strip every <text> tag (it carries Turkish labels)
   out = out.replace(/<text[\s\S]*?<\/text>/g, '');
-  // strip style block — we'll override inline
-  out = out.replace(/<style[\s\S]*?<\/style>/g, '');
-  // remove class attributes since style block is gone
-  out = out.replace(/\sclass="[^"]*"/g, '');
-  // normalise red accents → currentColor
-  out = out.replace(/#ED1C3D|#ED1940|#ED1C26/gi, 'currentColor');
-  // recolor any explicit blacks → currentColor
-  out = out.replace(/#020203|#020202|#030403|#070A07|#0B0E0A|#040504|#080808|#090706|#070605|#0A0807|#0A0505|#070404|#030202|#070505|#040406|#0A0807|#040407/gi, 'currentColor');
-  out = out.replace(/#A5A4A4|#777777|#F4F4F5|#F9F9FA/gi, 'currentColor');
-  // any remaining stroke="#000000" / fill="#000000"
-  out = out.replace(/(stroke|fill)="#000000"/gi, '$1="currentColor"');
-  out = out.replace(/(stroke|fill)="#FFFFFF"/gi, '$1="transparent"');
-  // narrow the viewBox to crop out the text label area
+
+  // Extract and inline the Illustrator CSS classes to preserve intended stroke-widths and overlapping fills
+  const styleMatch = out.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+  if (styleMatch) {
+    const cssText = styleMatch[1];
+    const rules: Record<string, string> = {};
+    const regex = /\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
+    let match;
+    while ((match = regex.exec(cssText)) !== null) {
+      rules[match[1]] = match[2];
+    }
+    
+    out = out.replace(/\sclass="([^"]+)"/g, (fullMatch, className) => {
+      const classNames = className.split(' ');
+      let inlineStyle = '';
+      for (const cn of classNames) {
+        if (rules[cn]) inlineStyle += rules[cn] + ';';
+      }
+      return inlineStyle ? ` style="${inlineStyle}"` : '';
+    });
+  }
+
+  // Remove the style block now that it's inlined
+  out = out.replace(/<style[\s\S]*?<\/style>/ig, '');
+
+  // Map dark colors & accents to currentColor
+  out = out.replace(/#020203|#020202|#030403|#070A07|#0B0E0A|#040504|#080808|#090706|#070605|#0A0807|#0A0505|#070404|#030202|#070505|#040406|#0A0807|#040407|#000000|#ED1C3D|#ED1940|#ED1C26|#A5A4A4|#777777/gi, 'currentColor');
+  
+  // Map light colors (used as masks/cutouts) to the background color variable
+  out = out.replace(/#FFFFFF|#F9F9FA|#F4F4F5/gi, 'var(--icon-bg)');
+
   out = out.replace(/viewBox="[^"]+"/, 'viewBox="240 100 380 360"');
-  // ensure we have width=100% height=100% on root
   out = out.replace(/<svg([^>]*)\swidth="[^"]*"/, '<svg$1');
   out = out.replace(/<svg([^>]*)\sheight="[^"]*"/, '<svg$1');
-  // re-apply default stroke/fill rendering and currentColor at root
-  out = out.replace(/<svg/, '<svg fill="currentColor" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" preserveAspectRatio="xMidYMid meet"');
+  out = out.replace(/<svg/, '<svg preserveAspectRatio="xMidYMid meet"');
   return out;
 }
 
@@ -122,6 +136,14 @@ function sanitizeLogo(svg: string): string {
   out = out.replace(/<!--[\s\S]*?-->/g, '');
   out = out.replace(/<text[\s\S]*?<\/text>/g, '');
   out = out.replace(/<style[\s\S]*?<\/style>/g, '');
+  
+  // FIX: The new logo exports as a white circle layered on top of a black circle.
+  // When classes are stripped, both become currentColor (black), turning the logo into a solid blob.
+  // We replace the two circles with a single compound donut path so the center is genuinely transparent.
+  out = out.replace(/<circle[^>]+r="100\.3"\/>\s*<circle[^>]+r="77\.87"\/>/g, 
+    '<path d="M 410.72 197.34 A 100.3 100.3 0 1 0 410.72 397.94 A 100.3 100.3 0 1 0 410.72 197.34 Z M 410.72 219.77 A 77.87 77.87 0 1 1 410.72 375.51 A 77.87 77.87 0 1 1 410.72 219.77 Z" />'
+  );
+
   out = out.replace(/\sclass="[^"]*"/g, '');
   out = out.replace(/#020203|#020202|#040504|#070A07|#0B0E0A|#080808|#090706|#070605|#0A0807|#0A0505|#070404|#030202|#070505/gi, 'currentColor');
   out = out.replace(/(stroke|fill)="#000000"/gi, '$1="currentColor"');

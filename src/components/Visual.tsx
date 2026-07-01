@@ -79,3 +79,10 @@ export function HairlineDivider({ label }: { label?: string }) {
     </div>
   );
 }
+
+export function BackgroundPattern() {
+  return (
+    <div className="dark-pattern" style={{ position: 'absolute', inset: 0, zIndex: 0 }} />
+  );
+}
+

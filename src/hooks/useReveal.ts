@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 
 export function useReveal() {
   useEffect(() => {
-    const els = document.querySelectorAll<HTMLElement>('.reveal:not(.in)');
+    const els = document.querySelectorAll<HTMLElement>('.reveal:not(.in), .reveal-scale:not(.in)');
     if (!('IntersectionObserver' in window)) {
       els.forEach(el => el.classList.add('in'));
       return;
@@ -19,3 +19,4 @@ export function useReveal() {
     return () => io.disconnect();
   });
 }
+

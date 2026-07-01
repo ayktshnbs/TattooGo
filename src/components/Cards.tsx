@@ -9,7 +9,7 @@ import { useLang } from '../i18n/LangContext';
 /* ------------ Tattoo card ------------ */
 export function TattooCard({ design }: { design: TattooDesign }) {
   return (
-    <article className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+    <article className="card card-lift" style={{ display: 'flex', flexDirection: 'column' }}>
       <Swatch id={design.swatch} ratio={design.imageRatio} label={`#${design.id}`} dark />
       <div className="card-pad col gap-2" style={{ flex: 1 }}>
         <div className="row between center">
@@ -29,7 +29,7 @@ export function ArtistCard({ artist, dark, large }: { artist: ArtistProfile; dar
   return (
     <Link
       to="/artists"
-      className="card"
+      className={`card card-lift${large ? ' card-featured' : ''}`}
       style={{
         display: 'grid', gridTemplateColumns: large ? '1.1fr 1fr' : '1fr',
         background: dark ? 'transparent' : 'transparent',
@@ -91,7 +91,7 @@ export function RequestCard({ request, dark }: { request: TattooRequest; dark?: 
   };
   return (
     <article
-      className="card card-pad col gap-3"
+      className={`card card-pad col gap-3 card-status-${request.status}`}
       style={{ borderColor: dark ? 'var(--night-hairline)' : 'var(--hairline)', color: dark ? 'var(--night-text)' : 'var(--ink)' }}
     >
       <div className="row between center">
