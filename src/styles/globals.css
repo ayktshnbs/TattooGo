@@ -351,6 +351,10 @@ input, textarea, select { font: inherit; color: inherit; }
 @media (max-width: 1100px) { .moodboard { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 768px)  { .moodboard { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 480px)  { .moodboard { grid-template-columns: 1fr; } }
+/* Touch devices have no hover — keep captions visible so titles/artists are legible */
+@media (hover: none) {
+  .moodboard-caption { opacity: 1; }
+}
 
 /* Marquee pause on hover */
 .marquee:hover .marquee-track {
