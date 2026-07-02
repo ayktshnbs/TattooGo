@@ -77,11 +77,16 @@ export function HeroReveal() {
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 
     /* ----- ping-pong render targets ----- */
+    // Half-float, not full float: most mobile GPUs can't render to 32-bit
+    // FloatType color buffers (no EXT_color_buffer_float), so the sim target
+    // came back incomplete and the reveal produced nothing on real phones —
+    // even though desktop and devtools device-emulation (desktop GPU) worked.
+    // Half-float is broadly supported and precise enough for the trail mask.
     const pingPongOpts: THREE.RenderTargetOptions = {
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
       format: THREE.RGBAFormat,
-      type: THREE.FloatType,
+      type: THREE.HalfFloatType,
     };
     const pingPong: [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget] = [
       new THREE.WebGLRenderTarget(CONFIG.simSize, CONFIG.simSize, pingPongOpts),
