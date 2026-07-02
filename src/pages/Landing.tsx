@@ -54,7 +54,7 @@ export function Landing() {
           className="container"
           style={{
             position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 3,
-            paddingBottom: 36, paddingTop: 28,
+            paddingBottom: 36, paddingTop: 28, paddingLeft: 'clamp(2px, 0.6vw, 16px)',
             pointerEvents: 'none',
           }}
         >
@@ -119,36 +119,7 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 02 How it works */}
-      <section className="section" style={{ background: 'var(--paper-warm)' }}>
-        <div className="container">
-          <SectionHeader
-            num={SECTION_NUMBERS.how}
-            eyebrow={lang === 'tr' ? 'Süreç' : 'Process'}
-            title={t('section.how')}
-          />
-          <div className="col" style={{ marginTop: 60, borderTop: '1px solid var(--hairline)' }}>
-            {([
-              ['01', t('how.01.title'), t('how.01.body')],
-              ['02', t('how.02.title'), t('how.02.body')],
-              ['03', t('how.03.title'), t('how.03.body')],
-              ['04', t('how.04.title'), t('how.04.body')],
-            ] as const).map(([n, ttl, body], i) => (
-              <div key={n} className="ledger-row reveal" style={{ alignItems: 'flex-start', padding: 'clamp(40px, 6vw, 80px) 0', borderBottom: '1px solid var(--hairline)' }}>
-                <div className="col" style={{ flexShrink: 0, width: 'clamp(100px, 15vw, 240px)' }}>
-                  <span className="display" style={{ fontSize: 'clamp(60px, 10vw, 140px)', lineHeight: 0.8, color: 'var(--hairline-strong)' }}>{n}</span>
-                </div>
-                <div className="col" style={{ flex: 1, maxWidth: 640 }}>
-                  <h3 className="display" style={{ margin: '0 0 16px', fontSize: 'clamp(28px, 4vw, 44px)' }}>{ttl}</h3>
-                  <p className="text-muted" style={{ margin: 0, fontSize: 16 }}>{body}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 03 Selected artists */}
+      {/* 02 Selected artists */}
       <section className="section" style={{ background: 'var(--paper-warm)' }}>
         <div className="container">
           <SectionHeader
@@ -194,7 +165,7 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 04 Trust */}
+      {/* 03 Trust */}
       <section className="section" style={{ background: 'var(--paper-warm)' }}>
         <div className="container">
           <SectionHeader

@@ -131,5 +131,5 @@ export const CUSTOMER = {
 };
 
 export const SECTION_NUMBERS = {
-  about: '01', how: '02', artists: '03', trust: '04', cta: '05',
+  about: '01', artists: '02', trust: '03', cta: '04',
 };
