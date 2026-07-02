@@ -54,16 +54,16 @@ export function Landing() {
           className="container"
           style={{
             position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 3,
-            paddingBottom: 36, paddingTop: 28, paddingLeft: 'clamp(2px, 0.6vw, 16px)',
+            paddingBottom: 36, paddingTop: 28,
             pointerEvents: 'none',
           }}
         >
           <div className="row between" style={{ gap: 40, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div className="col" style={{ flex: '1 1 380px', pointerEvents: 'auto' }}>
-              <h1 className="display" style={{ fontSize: 'clamp(56px, 10vw, 156px)', margin: 0, color: '#F5F2EB', textShadow: '0 2px 24px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.4)', letterSpacing: '-0.04em', lineHeight: 0.86 }}>
+            <div className="col hero-headline-col" style={{ flex: '0 1 auto', maxWidth: 'min(46vw, 520px)', pointerEvents: 'auto' }}>
+              <h1 className="display" style={{ fontSize: 'clamp(30px, 6vw, 92px)', margin: 0, color: '#F5F2EB', textShadow: '0 2px 24px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.4)', letterSpacing: '-0.04em', lineHeight: 0.86, whiteSpace: 'nowrap' }}>
                 Tattoo<span className="italic">Go</span>
               </h1>
-              <h2 className="display display-md" style={{ margin: '14px 0 0', color: '#F5F2EB', textShadow: '0 2px 20px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)', maxWidth: 540 }}>
+              <h2 className="display display-md" style={{ margin: '12px 0 0', color: '#F5F2EB', textShadow: '0 2px 20px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)', maxWidth: 420, fontSize: 'clamp(18px, 2.4vw, 30px)' }}>
                 {lang === 'tr' ? 'Bir amaçla' : 'Ink,'} <span className="italic">{lang === 'tr' ? 'tene kazınan mürekkep.' : 'revealed with intention.'}</span>
               </h2>
             </div>
@@ -93,33 +93,7 @@ export function Landing() {
         ]}
       />
 
-      {/* 01 About */}
-      <section className="section">
-        <div className="container">
-          <SectionHeader
-            num={SECTION_NUMBERS.about}
-            eyebrow={lang === 'tr' ? 'Hakkında' : 'About'}
-            title={lang === 'tr' ? 'Seçilmiş' : 'A curated'}
-            italic={lang === 'tr' ? 'bir dövme pazarı.' : 'tattoo marketplace.'}
-          />
-          <div className="editorial-split reveal" style={{ marginTop: 60 }}>
-            <div>
-              <p className="display" style={{ fontSize: 'clamp(36px, 6vw, 72px)', margin: 0, maxWidth: 800 }}>
-                {lang === 'tr'
-                  ? 'TattooGo, dövmeyi bir karar olarak ele alır — ortaya çıkmak için doğru ele ihtiyacı olan bir karar.'
-                  : 'TattooGo treats a tattoo as a decision — one that deserves the right hand to bring it to life.'}
-              </p>
-            </div>
-            <div className="col" style={{ alignSelf: 'flex-end', width: '100%' }}>
-              <Stat label={lang === 'tr' ? 'Onaylı sanatçı' : 'Verified artists'} value="412" />
-              <Stat label={lang === 'tr' ? 'Tamamlanan randevu' : 'Bookings completed'} value="2,184" />
-              <Stat label={lang === 'tr' ? 'Ortalama yanıt süresi' : 'Median first reply'} value="38 min" />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 02 Selected artists */}
+      {/* 01 Selected artists */}
       <section className="section" style={{ background: 'var(--paper-warm)' }}>
         <div className="container">
           <SectionHeader
@@ -165,7 +139,7 @@ export function Landing() {
         </div>
       </section>
 
-      {/* 03 Trust */}
+      {/* 02 Trust */}
       <section className="section" style={{ background: 'var(--paper-warm)' }}>
         <div className="container">
           <SectionHeader
@@ -253,14 +227,5 @@ function Badge({ label }: { label: string }) {
       <span style={{ width: 6, height: 6, borderRadius: 999, background: 'currentColor' }} />
       {label}
     </span>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="stat-row">
-      <span className="mono text-muted">{label}</span>
-      <span className="display" style={{ fontSize: 32, lineHeight: 1 }}>{value}</span>
-    </div>
   );
 }

@@ -497,6 +497,17 @@ input, textarea, select { font: inherit; color: inherit; }
   }
 }
 
+/* Hero headline column — on desktop, lift it up and nudge it left so
+   "TattooGo" sits higher on the frame and clears the model's face. On
+   mobile it stays anchored low-left (lifting it there would push it into
+   the centered face), so the offsets only apply at the desktop breakpoint. */
+@media (min-width: 940px) {
+  .hero-headline-col {
+    margin-bottom: clamp(24px, 6vh, 72px);
+    margin-left: clamp(-16px, -1vw, -6px);
+  }
+}
+
 /* Hero overlay legibility — frosted chips so metadata and badges read
    against any tone in the underlying photo (light skin/hair or dark ink). */
 .hero-chip {

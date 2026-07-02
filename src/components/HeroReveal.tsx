@@ -266,19 +266,12 @@ export function HeroReveal() {
         isMoving = false;
       }
     }
-    function onTouchMove(e: TouchEvent) {
-      if (e.touches.length === 0) return;
-      const t = e.touches[0];
-      if (pointerInsideRect(t.clientX, t.clientY)) {
-        e.preventDefault();
-        setMouseFromClient(t.clientX, t.clientY);
-      } else {
-        isMoving = false;
-      }
-    }
-
+    // NOTE: no touchmove handler. Driving the reveal from touch required
+    // preventDefault() to stop the browser's default pan, which blocked
+    // vertical page scroll on real touch devices (the hero is 100vh, so the
+    // whole first screen swallowed scroll gestures). On touch we let the
+    // idle auto-trail animate the reveal instead and leave scrolling intact.
     window.addEventListener("mousemove", onMouseMove, { passive: true });
-    window.addEventListener("touchmove", onTouchMove, { passive: false });
 
     /* ----- resize ----- */
     function resize() {
@@ -362,7 +355,6 @@ export function HeroReveal() {
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("resize", resize);
       ro.disconnect();
       pingPong.forEach((t) => t.dispose());
