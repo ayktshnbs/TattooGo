@@ -174,19 +174,25 @@ function BottomNav({ scope }: { scope: DashboardScope }) {
             >
               <span
                 style={{
-                  width: it.primary ? 40 : 32,
-                  height: it.primary ? 40 : 32,
+                  width: it.primary ? 42 : 34,
+                  height: it.primary ? 42 : 34,
                   borderRadius: 999,
-                  border: '1px solid var(--night-hairline)',
-                  background: it.primary ? 'var(--paper)' : 'transparent',
-                  color: it.primary ? 'var(--ink)' : 'var(--night-text)',
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  opacity: active ? 1 : 0.9,
+                  // Cut-out areas of the icon must match the surface behind them:
+                  // the white pill for the primary CTA, the dark bar otherwise.
+                  ['--icon-bg' as any]: it.primary ? 'var(--paper)' : '#0F0D0B',
+                  background: it.primary
+                    ? 'var(--paper)'
+                    : active ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)',
+                  border: it.primary
+                    ? '1px solid var(--paper)'
+                    : active ? '1px solid rgba(255,255,255,0.75)' : '1px solid rgba(255,255,255,0.3)',
+                  color: it.primary ? 'var(--ink)' : 'var(--night-text)',
                 }}
               >
                 <Icon name={it.icon} size={it.primary ? 18 : 16} />
               </span>
-              <span className="mono-sm" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase', opacity: active ? 1 : 0.65 }}>{it.label}</span>
+              <span className="mono-sm" style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--night-text)', opacity: active ? 1 : 0.75 }}>{it.label}</span>
             </Link>
           );
         })}
