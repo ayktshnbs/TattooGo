@@ -288,7 +288,7 @@ export function Contact() {
         </form>
         <div className="col gap-3">
           <span className="mono text-muted">{lang === 'tr' ? 'Doğrudan' : 'Direct'}</span>
-          <p className="display display-md" style={{ margin: 0 }}>hello@tattoogo.example</p>
+          <p className="display display-md" style={{ margin: 0, overflowWrap: 'anywhere' }}>hello@tattoogo.example</p>
           <span className="text-muted">Istanbul · Karaköy · TR</span>
         </div>
       </div>

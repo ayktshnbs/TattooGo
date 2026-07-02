@@ -59,7 +59,7 @@ export function DashboardLayout({ scope, title, subtitle, children }: Props) {
   return (
     <div style={{ background: 'var(--paper)', minHeight: '100vh' }}>
       <DashTopBar scope={scope} />
-      <div className="container" style={{ paddingTop: 28, paddingBottom: 120, display: 'grid', gridTemplateColumns: 'minmax(200px, 240px) 1fr', gap: 'clamp(28px, 4vw, 64px)' }}>
+      <div className="container dash-grid" style={{ paddingTop: 28, paddingBottom: 120 }}>
         <aside className="dash-aside" style={{ borderTop: '1px solid var(--hairline-strong)', paddingTop: 22, position: 'sticky', top: 90, alignSelf: 'start', maxHeight: 'calc(100vh - 110px)', overflowY: 'auto' }}>
           <span className="mono text-muted">{scope === 'customer' ? (lang === 'tr' ? 'Müşteri menüsü' : 'Customer menu') : (lang === 'tr' ? 'Sanatçı menüsü' : 'Artist menu')}</span>
           <ul style={{ listStyle: 'none', padding: 0, margin: '18px 0 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -115,14 +115,14 @@ function DashTopBar({ scope }: { scope: DashboardScope }) {
       <div className="container row center between" style={{ paddingBlock: 14 }}>
         <div className="row center gap-4">
           <Logo />
-          <span className="mono text-muted" style={{ marginLeft: 8 }}>· {scope === 'customer' ? (lang === 'tr' ? 'Müşteri Paneli' : 'Customer Panel') : (lang === 'tr' ? 'Stüdyo Paneli' : 'Studio Panel')}</span>
+          <span className="mono text-muted dash-hide-sm" style={{ marginLeft: 8 }}>· {scope === 'customer' ? (lang === 'tr' ? 'Müşteri Paneli' : 'Customer Panel') : (lang === 'tr' ? 'Stüdyo Paneli' : 'Studio Panel')}</span>
         </div>
         <div className="row center gap-4">
           <Link to={scope === 'customer' ? '/dashboard/notifications' : '/studio/notifications'} className="mono row center gap-2" aria-label="Notifications">
-            <Icon name="notifications" size={18} /> Notifications
+            <Icon name="notifications" size={18} /> <span className="dash-hide-sm">Notifications</span>
           </Link>
           <Link to={scope === 'customer' ? '/dashboard/messages' : '/studio/messages'} className="mono row center gap-2" aria-label="Messages">
-            <Icon name="messages" size={18} /> DM
+            <Icon name="messages" size={18} /> <span className="dash-hide-sm">DM</span>
           </Link>
           <Link to="#" className="mono row center gap-2" aria-label="Search">
             <Icon name="search" size={18} />

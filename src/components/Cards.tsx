@@ -286,10 +286,10 @@ export function ArtistMemberRow({ m }: { m: ArtistMember }) {
   return (
     <div className="row center gap-4" style={{ padding: '16px 0', borderBottom: '1px solid var(--hairline)' }}>
       <AvatarBubble name={m.name} size={48} />
-      <div className="col" style={{ flex: 1 }}>
+      <div className="col" style={{ flex: 1, minWidth: 0 }}>
         <strong>{m.name}</strong>
         <span className="text-muted">{m.role} · joined {m.joinedAt}</span>
-        <div className="row gap-2" style={{ marginTop: 6 }}>{m.styles.map(s => <span key={s} className="tag tag-soft">{s}</span>)}</div>
+        <div className="row gap-2 wrap" style={{ marginTop: 6 }}>{m.styles.map(s => <span key={s} className="tag tag-soft">{s}</span>)}</div>
       </div>
       <span className="mono">★ {m.rating}</span>
       <button className="btn btn-sm btn-ghost">Edit</button>

@@ -207,7 +207,7 @@ export function CustomerMessages() {
   const msgs = MESSAGES.filter(m => m.conversationId === activeId);
   return (
     <DashboardLayout scope="customer" title={lang === 'tr' ? 'Mesajlar' : 'Messages'}>
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 0, border: '1px solid var(--hairline)' }}>
+      <div className="msg-grid" style={{ gap: 0, border: '1px solid var(--hairline)' }}>
         <div className="col" style={{ borderRight: '1px solid var(--hairline)', maxHeight: 580, overflowY: 'auto' }}>
           <div style={{ padding: 14, borderBottom: '1px solid var(--hairline)' }}>
             <Input placeholder={lang === 'tr' ? 'Sohbet ara' : 'Search conversations'} />

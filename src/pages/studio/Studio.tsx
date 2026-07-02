@@ -268,7 +268,7 @@ export function StudioCalendar() {
               <button className="mono">→</button>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: 'var(--hairline)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 1, background: 'var(--hairline)' }}>
             {['M','T','W','T','F','S','S'].map(d => <div key={d + Math.random()} className="mono text-muted" style={{ background: 'var(--paper)', padding: 6, textAlign: 'center' }}>{d}</div>)}
             {days.map((_, i) => {
               const day = i + 1 - 2;
@@ -388,7 +388,7 @@ export function StudioMessages() {
   const msgs = MESSAGES.filter(m => m.conversationId === activeId);
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Mesajlar' : 'Messages'}>
-      <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', gap: 0, border: '1px solid var(--hairline)' }}>
+      <div className="msg-grid" style={{ gap: 0, border: '1px solid var(--hairline)' }}>
         <div className="col" style={{ borderRight: '1px solid var(--hairline)' }}>
           <div style={{ padding: 14, borderBottom: '1px solid var(--hairline)' }}><Input placeholder="Search" /></div>
           {CONVERSATIONS.map(c => (

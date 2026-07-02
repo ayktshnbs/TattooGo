@@ -64,12 +64,16 @@ export function Footer() {
         <div
           className="display"
           style={{
-            fontSize: 'clamp(80px, 22vw, 320px)',
+            // Cinzel is a wide face — sized to fill the container without
+            // overflowing it (the word renders at ~5x the font-size, so the
+            // vw factor and caps keep it inside the gutters at every width).
+            fontSize: 'clamp(48px, 16vw, 250px)',
             lineHeight: 0.85,
-            letterSpacing: '-0.04em',
+            letterSpacing: '-0.02em',
             color: 'var(--night-text)',
             borderTop: '1px solid var(--night-hairline)',
             paddingTop: 36,
+            whiteSpace: 'nowrap',
           }}
         >
           Tattoo<span className="italic">Go</span>

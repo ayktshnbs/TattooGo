@@ -120,6 +120,7 @@ input, textarea, select { font: inherit; color: inherit; }
   color: var(--ink);
   transition: border-color .25s var(--ease-out);
   width: 100%;
+  min-width: 0; /* form controls have an intrinsic width; let them shrink in narrow grids */
   font-family: var(--font-body);
 }
 .field .textarea { resize: vertical; min-height: 90px; }
@@ -204,6 +205,7 @@ input, textarea, select { font: inherit; color: inherit; }
 
 /* Editorial split */
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(24px, 5vw, 80px); }
+.split > * { min-width: 0; } /* let cells shrink so wide content (long words, inputs) reflows instead of overflowing */
 @media (max-width: 820px) { .split { grid-template-columns: 1fr; } }
 
 /* Marquee */
@@ -495,6 +497,39 @@ input, textarea, select { font: inherit; color: inherit; }
     grid-template-columns: 1fr 1.6fr;
     gap: 80px;
   }
+}
+
+/* Dashboard shell — desktop shows a left sidebar (aside); mobile collapses
+   to a single column and uses the fixed bottom-nav instead. Without the
+   media query the 240px sidebar track never collapsed, forcing horizontal
+   overflow on narrow screens. */
+.dash-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) 1fr;
+  gap: clamp(28px, 4vw, 64px);
+}
+/* Grid/flex children default to min-width:auto and won't shrink below their
+   content, which forced the main column past the viewport on mobile. Let it
+   shrink so wide content reflows instead of overflowing. */
+.dash-grid > main { min-width: 0; }
+
+/* Messages: two panes (conversation list + thread) on desktop, stacked on
+   mobile. min-width:0 lets the thread text wrap instead of forcing overflow. */
+.msg-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+}
+.msg-grid > * { min-width: 0; }
+@media (max-width: 860px) {
+  .msg-grid { grid-template-columns: 1fr; }
+}
+.bottom-nav { display: none; }
+@media (max-width: 860px) {
+  .dash-grid { grid-template-columns: 1fr; }
+  .dash-aside { display: none; }
+  .bottom-nav { display: block; }
+  /* Trim the top bar to icons only so its row fits a phone width. */
+  .dash-hide-sm { display: none; }
 }
 
 /* Hero headline column — on desktop, lift it up and nudge it left so
