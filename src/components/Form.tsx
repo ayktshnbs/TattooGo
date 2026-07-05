@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { fileToUpload } from '../data/uploads';
 
 interface FieldProps {
   label: string;
@@ -94,7 +95,6 @@ export function UploadImage({ label, onImage, preview }: {
               const file = list[0];
               setFiles([file.name]);
               if (onImage) {
-                const { fileToUpload } = await import('../data/uploads');
                 try {
                   const { dataUrl, ratio } = await fileToUpload(file);
                   onImage(dataUrl, ratio);

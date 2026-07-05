@@ -87,19 +87,22 @@ export function AddTattoo() {
   const [style, setStyle] = useState<TattooStyle>(STYLES[0].key);
   const [image, setImage] = useState<{ url: string; ratio: number } | null>(null);
   const [published, setPublished] = useState(false);
-  const ok = tags.length >= 3 && title.trim().length > 0 && !!image;
+  const [busy, setBusy] = useState(false);
+  const ok = tags.length >= 3 && title.trim().length > 0 && !!image && !busy;
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme ekle' : 'Add tattoo'} subtitle={lang === 'tr' ? 'Portföyünüze yeni bir parça ekleyin — ana sayfa akışında görünür.' : 'Add a new piece to your portfolio — it shows up in the landing feed.'}>
       <div className="split">
         <form
           className="col"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             if (!ok || !image) return;
-            const saved = addUpload({
+            setBusy(true);
+            const saved = await addUpload({
               title: title.trim(), artistName: 'Aslı Vardar', style, tags,
               imageUrl: image.url, imageRatio: image.ratio, source: 'artist',
             });
+            setBusy(false);
             if (saved) { setPublished(true); setTitle(''); setImage(null); }
           }}
         >
@@ -148,7 +151,7 @@ export function AddTattoo() {
           </Field>
           <Field label={lang === 'tr' ? 'Fiyat (opsiyonel)' : 'Price (optional)'}><Input type="number" placeholder="₺" /></Field>
           <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-accent" type="submit" disabled={!ok}>{lang === 'tr' ? 'Yayınla' : 'Publish'}</button>
+            <button className="btn btn-accent" type="submit" disabled={!ok}>{busy ? (lang === 'tr' ? 'Yükleniyor…' : 'Uploading…') : (lang === 'tr' ? 'Yayınla' : 'Publish')}</button>
             <button className="btn btn-ghost" type="button">{lang === 'tr' ? 'Taslak' : 'Save draft'}</button>
           </div>
         </form>

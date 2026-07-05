@@ -1,18 +1,20 @@
 import type { TattooDesign, TattooStyle } from './types';
 
 /**
- * Community uploads — the prototype's stand-in for a backend.
+ * Community uploads — client for the /api/uploads backend.
  *
  * Artists (studio panel) and customers (customer panel) publish their tattoo
- * photos here; the landing feed merges them on top of the seeded designs.
- * Images are stored as downscaled JPEG data URLs in localStorage, so the demo
- * survives reloads. Swapping this module for real API calls later leaves the
- * consuming components untouched.
+ * photos; the landing feed merges them on top of the seeded designs. Images
+ * live in Vercel Blob (CDN-served); metadata lives in a blob-hosted index the
+ * API maintains. When the API is unreachable (vite dev server, offline), both
+ * reads and writes fall back to localStorage so the flow keeps working.
  */
 
 const KEY = 'tg.uploads';
 export const UPLOADS_EVENT = 'tg:uploads';
+const API = '/api/uploads';
 
+/** Synchronous local cache — used for instant first paint and as fallback. */
 export function getUploads(): TattooDesign[] {
   try {
     const raw = localStorage.getItem(KEY);
@@ -24,19 +26,39 @@ export function getUploads(): TattooDesign[] {
   }
 }
 
+function cacheUploads(list: TattooDesign[]): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(list.slice(0, 24)));
+  } catch { /* quota — cache is best-effort */ }
+}
+
+/** Fetch the shared community feed; falls back to the local cache. */
+export async function fetchUploads(): Promise<TattooDesign[]> {
+  try {
+    const res = await fetch(API, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error(String(res.status));
+    const list = await res.json();
+    if (!Array.isArray(list)) throw new Error('bad payload');
+    cacheUploads(list);
+    return list;
+  } catch {
+    return getUploads();
+  }
+}
+
 export interface UploadInput {
   title: string;
   artistName: string;
   style: TattooStyle;
   tags: string[];
-  imageUrl: string;
+  imageUrl: string; // JPEG data URL from fileToUpload()
   imageRatio: number;
   city?: string;
   price?: number;
   source: 'artist' | 'customer';
 }
 
-export function addUpload(input: UploadInput): TattooDesign | null {
+function localAdd(input: UploadInput): TattooDesign | null {
   const design: TattooDesign = {
     id: `u${Date.now().toString(36)}`,
     artistId: 'community',
@@ -47,18 +69,42 @@ export function addUpload(input: UploadInput): TattooDesign | null {
     ...input,
   };
   try {
-    const next = [design, ...getUploads()];
-    localStorage.setItem(KEY, JSON.stringify(next));
+    localStorage.setItem(KEY, JSON.stringify([design, ...getUploads()]));
   } catch {
     // Quota exceeded (data URLs are heavy) — drop the oldest uploads and retry
     try {
-      const trimmed = [design, ...getUploads().slice(0, 11)];
-      localStorage.setItem(KEY, JSON.stringify(trimmed));
+      localStorage.setItem(KEY, JSON.stringify([design, ...getUploads().slice(0, 11)]));
     } catch {
       return null;
     }
   }
-  window.dispatchEvent(new Event(UPLOADS_EVENT));
+  return design;
+}
+
+/** Publish to the shared feed; falls back to localStorage when offline. */
+export async function addUpload(input: UploadInput): Promise<TattooDesign | null> {
+  let design: TattooDesign | null = null;
+  try {
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: input.title,
+        artistName: input.artistName,
+        style: input.style,
+        tags: input.tags,
+        imageData: input.imageUrl,
+        imageRatio: input.imageRatio,
+        source: input.source,
+      }),
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    design = await res.json();
+    if (design) cacheUploads([design, ...getUploads()]);
+  } catch {
+    design = localAdd(input);
+  }
+  if (design) window.dispatchEvent(new Event(UPLOADS_EVENT));
   return design;
 }
 

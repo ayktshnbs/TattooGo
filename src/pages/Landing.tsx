@@ -5,7 +5,7 @@ import { Footer } from '../components/Footer';
 import { StarField } from '../components/StarField';
 import { Icon } from '../components/Icon';
 import { DESIGNS } from '../data/mock';
-import { getUploads, UPLOADS_EVENT } from '../data/uploads';
+import { getUploads, fetchUploads, UPLOADS_EVENT } from '../data/uploads';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
 import { Swatch } from '../components/Visual';
@@ -17,13 +17,17 @@ export function Landing() {
   useReveal();
 
   // Community uploads (artists + customers) float on top of the seeded
-  // designs. Re-read when a publish happens in this tab or another one.
+  // designs. Local cache paints instantly, then the shared feed from the API
+  // replaces it; re-fetch when a publish happens in this tab or another one.
   const [uploads, setUploads] = useState(getUploads);
   useEffect(() => {
-    const refresh = () => setUploads(getUploads());
+    let alive = true;
+    const refresh = () => { fetchUploads().then(list => { if (alive) setUploads(list); }); };
+    refresh();
     window.addEventListener(UPLOADS_EVENT, refresh);
     window.addEventListener('storage', refresh);
     return () => {
+      alive = false;
       window.removeEventListener(UPLOADS_EVENT, refresh);
       window.removeEventListener('storage', refresh);
     };

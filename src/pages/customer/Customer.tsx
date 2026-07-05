@@ -61,7 +61,8 @@ export function ShareInk() {
   const [style, setStyle] = useState<TattooStyle>(STYLES[0].key);
   const [image, setImage] = useState<{ url: string; ratio: number } | null>(null);
   const [published, setPublished] = useState(false);
-  const ok = title.trim().length > 0 && !!image;
+  const [busy, setBusy] = useState(false);
+  const ok = title.trim().length > 0 && !!image && !busy;
   return (
     <DashboardLayout
       scope="customer"
@@ -71,15 +72,17 @@ export function ShareInk() {
       <div className="split">
         <form
           className="col"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
             if (!ok || !image) return;
-            const saved = addUpload({
+            setBusy(true);
+            const saved = await addUpload({
               title: title.trim(),
               artistName: artistName.trim() || (lang === 'tr' ? 'Topluluk' : 'Community'),
               style, tags: [style, 'community'],
               imageUrl: image.url, imageRatio: image.ratio, source: 'customer',
             });
+            setBusy(false);
             if (saved) { setPublished(true); setTitle(''); setArtistName(''); setImage(null); }
           }}
         >
@@ -106,7 +109,7 @@ export function ShareInk() {
             <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value as TattooStyle)} />
           </Field>
           <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-accent" type="submit" disabled={!ok}>{lang === 'tr' ? 'Yayınla' : 'Publish'}</button>
+            <button className="btn btn-accent" type="submit" disabled={!ok}>{busy ? (lang === 'tr' ? 'Yükleniyor…' : 'Uploading…') : (lang === 'tr' ? 'Yayınla' : 'Publish')}</button>
           </div>
         </form>
         <aside className="card col">
