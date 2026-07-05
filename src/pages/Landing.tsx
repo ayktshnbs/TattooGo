@@ -28,20 +28,11 @@ export function Landing() {
           style={{
             position: 'absolute', inset: 0, zIndex: 2,
             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-            textAlign: 'center', padding: '0 24px', gap: 24,
+            textAlign: 'center', padding: '0 24px', gap: 12,
           }}
         >
-          <span
-            aria-hidden
-            style={{
-              width: 'clamp(60px, 10vw, 92px)', height: 'clamp(60px, 10vw, 92px)',
-              color: '#F5F2EB', display: 'inline-flex',
-              filter: 'drop-shadow(0 0 24px rgba(255,255,255,0.25))',
-            }}
-          >
-            <Icon name="logo" size="100%" />
-          </span>
-          <h1 className="display" style={{ margin: 0, color: '#F5F2EB', fontSize: 'clamp(40px, 7vw, 84px)', letterSpacing: '-0.01em', lineHeight: 0.95 }}>
+          <OrbitLogo />
+          <h1 className="display" style={{ margin: '-6px 0 0', color: '#F5F2EB', fontSize: 'clamp(40px, 7vw, 84px)', letterSpacing: '-0.01em', lineHeight: 0.95 }}>
             Tattoo<span className="italic">Go</span>
           </h1>
           <p style={{ margin: 0, color: 'rgba(245,242,235,0.72)', fontSize: 'clamp(14px, 2.4vw, 18px)', maxWidth: 440, lineHeight: 1.5 }}>
@@ -190,5 +181,37 @@ export function Landing() {
 
       <Footer />
     </>
+  );
+}
+
+/* Cosmic orbit around the brand mark — a faint vortex plus two bold
+   elliptical rings (one behind, one in front) rotating in opposite
+   directions. Motion + layering live in globals.css (.orbit*). */
+function OrbitLogo() {
+  return (
+    <div className="orbit" aria-hidden>
+      <svg className="orbit-vortex" viewBox="0 0 200 200">
+        <g fill="none" stroke="rgba(245,242,235,0.16)">
+          <ellipse cx="100" cy="100" rx="96" ry="80" transform="rotate(18 100 100)" strokeWidth="0.6" />
+          <ellipse cx="100" cy="100" rx="82" ry="95" transform="rotate(-30 100 100)" strokeWidth="0.6" />
+          <circle cx="100" cy="100" r="70" strokeWidth="0.5" opacity="0.7" />
+          <ellipse cx="100" cy="100" rx="58" ry="70" transform="rotate(52 100 100)" strokeWidth="0.5" />
+        </g>
+      </svg>
+
+      <svg className="orbit-ring-back" viewBox="0 0 200 200">
+        <ellipse cx="100" cy="100" rx="88" ry="30" transform="rotate(-26 100 100)" fill="none" stroke="rgba(245,242,235,0.7)" strokeWidth="2.4" />
+      </svg>
+
+      <span className="orbit-mark"><Icon name="logo" size="100%" /></span>
+
+      <svg className="orbit-ring-front" viewBox="0 0 200 200">
+        <ellipse cx="100" cy="100" rx="84" ry="26" transform="rotate(34 100 100)" fill="none" stroke="rgba(245,242,235,0.95)" strokeWidth="2.8" />
+      </svg>
+
+      <span className="orbit-spark" style={{ position: 'absolute', right: '11%', bottom: '15%', width: 18, height: 18 }}>
+        <svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M12 0 L14 10 L24 12 L14 14 L12 24 L10 14 L0 12 L10 10 Z" /></svg>
+      </span>
+    </div>
   );
 }

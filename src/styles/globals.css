@@ -543,6 +543,38 @@ input, textarea, select { font: inherit; color: inherit; }
   }
 }
 
+/* Hero orbit logo — the brand mark centred with cosmic rings orbiting it:
+   a faint concentric vortex spinning slowly behind, and two bold elliptical
+   rings (one behind the mark, one in front) rotating in opposite directions
+   for a Saturn/atom feel. All CSS transforms, so it's crisp and cheap. */
+.orbit {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: clamp(190px, 34vw, 280px);
+  aspect-ratio: 1;
+}
+.orbit > * { grid-area: 1 / 1; }
+.orbit svg { width: 100%; height: 100%; overflow: visible; display: block; }
+.orbit-mark {
+  width: clamp(58px, 9vw, 86px);
+  height: clamp(58px, 9vw, 86px);
+  color: #F5F2EB;
+  display: inline-flex;
+  z-index: 2;
+  filter: drop-shadow(0 0 22px rgba(255, 255, 255, 0.28));
+}
+.orbit-vortex { z-index: 0; opacity: 0.55; animation: orbit-cw 70s linear infinite; }
+.orbit-ring-back { z-index: 1; animation: orbit-cw 11s linear infinite; }
+.orbit-ring-front { z-index: 3; animation: orbit-ccw 15s linear infinite; }
+.orbit-spark { z-index: 4; color: #F5F2EB; animation: orbit-twinkle 3.2s ease-in-out infinite; }
+@keyframes orbit-cw { to { transform: rotate(360deg); } }
+@keyframes orbit-ccw { to { transform: rotate(-360deg); } }
+@keyframes orbit-twinkle { 0%, 100% { opacity: 0.25; transform: scale(0.85); } 50% { opacity: 0.9; transform: scale(1.05); } }
+@media (prefers-reduced-motion: reduce) {
+  .orbit-vortex, .orbit-ring-back, .orbit-ring-front, .orbit-spark { animation: none; }
+}
+
 /* Hero overlay legibility — frosted chips so metadata and badges read
    against any tone in the underlying photo (light skin/hair or dark ink). */
 .hero-chip {
