@@ -15,7 +15,7 @@ export function SectionHeader({ num, eyebrow, title, italic, description, tone =
     <header className="reveal" style={{ textAlign: align, color: ink }}>
       <div className="row center between" style={{ borderBottom: `1px solid ${tone === 'dark' ? 'var(--night-hairline)' : 'var(--hairline)'}`, paddingBottom: 14, marginBottom: 28 }}>
         <span className="mono" style={{ color: muted }}>{num} · {eyebrow ?? title}</span>
-        <span className="mono" style={{ color: muted }}>TattooGo · index</span>
+        <span className="mono notranslate" translate="no" style={{ color: muted }}>TattooGo · index</span>
       </div>
       <h2 className="display display-lg" style={{ margin: 0 }}>
         {title}{italic && <> <span className="italic" style={{ color: 'var(--accent)' }}>{italic}</span></>}

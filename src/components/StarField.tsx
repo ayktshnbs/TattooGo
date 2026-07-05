@@ -35,7 +35,7 @@ export function StarField() {
     let stars: Star[] = [];
 
     function build() {
-      const count = Math.round((w * h) / 6200); // density scales with area
+      const count = Math.round((w * h) / 2600); // density scales with area
       stars = [];
       for (let i = 0; i < count; i++) {
         const depth = Math.random(); // 0 = near, 1 = far

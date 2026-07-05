@@ -62,7 +62,8 @@ export function Footer() {
         </div>
 
         <div
-          className="display"
+          className="display notranslate"
+          translate="no"
           style={{
             // Cinzel is a wide face — sized to fill the container without
             // overflowing it (the word renders at ~5x the font-size, so the

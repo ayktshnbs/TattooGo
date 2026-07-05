@@ -9,6 +9,8 @@ export function Logo({ tone = 'light', size = 30 }: { tone?: 'light' | 'dark'; s
         <Icon name="logo" size={size} />
       </span>
       <span
+        className="notranslate"
+        translate="no"
         style={{
           fontFamily: 'var(--font-display)',
           fontWeight: 500,
