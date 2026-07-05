@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { Marquee } from '../components/Marquee';
-import { HeroReveal } from '../components/HeroReveal';
+import { StarField } from '../components/StarField';
+import { Icon } from '../components/Icon';
 import { SectionHeader } from '../components/SectionHeader';
 import { ARTISTS, DESIGNS, SECTION_NUMBERS } from '../data/mock';
 import { useLang } from '../i18n/LangContext';
@@ -15,69 +16,40 @@ export function Landing() {
 
   return (
     <>
-      <Header />
+      <Header overHero />
 
-      {/* Hero — full-viewport WebGL fluid-trail reveal. The canvas is the
-          entire stage; copy overlays the bottom edge so the cursor reveals
-          the tattooed portrait beneath the clean portrait edge-to-edge.
-          This is the only theatrical motion moment on the site. */}
-      <section style={{ position: 'relative', height: '100vh', minHeight: 560, overflow: 'hidden', background: '#F1F1F1' }} className="hero">
-        <HeroReveal />
+      {/* Hero — an animated deep-space starfield (Canvas 2D, mobile-safe) with
+          the brand mark centered on top. Kept intentionally calm: the logo is
+          the focus, the stars drift quietly behind it. */}
+      <section style={{ position: 'relative', height: '100vh', minHeight: 560, overflow: 'hidden', background: '#000' }} className="hero">
+        <StarField />
 
-        {/* Legibility scrim — a soft dark vignette anchored to the bottom of the
-            canvas. It sits above the WebGL stage but beneath the copy, so the
-            cream headline reads cleanly over BOTH the light (clean portrait) and
-            dark (revealed tattoo) states without heavy per-glyph shadows. The
-            gradient stays transparent through the upper ~55% so the model's face
-            and the cursor-reveal remain untouched. */}
         <div
-          aria-hidden
           style={{
-            position: 'absolute', left: 0, right: 0, bottom: 0, height: '78%',
-            zIndex: 1, pointerEvents: 'none',
-            background:
-              'linear-gradient(to top, rgba(0,0,0,0.68) 0%, rgba(0,0,0,0.52) 22%, rgba(0,0,0,0.34) 42%, rgba(0,0,0,0.14) 60%, transparent 80%)',
-          }}
-        />
-
-        {/* Top metadata row — sits below the header */}
-        <div className="container" style={{ position: 'absolute', top: 96, left: 0, right: 0, zIndex: 2, pointerEvents: 'none' }}>
-          <div className="row">
-            <span className="mono hero-chip">TG · 2026 · Edition №1</span>
-          </div>
-        </div>
-
-        {/* Copy overlay — sits at the bottom of the hero canvas. Click-through
-            disabled on the wrapper; re-enabled per element so the canvas behind
-            still receives mousemove from the empty space. */}
-        <div
-          className="container"
-          style={{
-            position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 3,
-            paddingBottom: 36, paddingTop: 28,
-            pointerEvents: 'none',
+            position: 'absolute', inset: 0, zIndex: 2,
+            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+            textAlign: 'center', padding: '0 24px', gap: 24,
           }}
         >
-          <div className="row between" style={{ gap: 40, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-            <div className="col hero-headline-col" style={{ flex: '0 1 auto', maxWidth: 'min(46vw, 520px)', pointerEvents: 'auto' }}>
-              <h1 className="display" style={{ fontSize: 'clamp(30px, 6vw, 92px)', margin: 0, color: '#F5F2EB', textShadow: '0 2px 24px rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.4)', letterSpacing: '-0.04em', lineHeight: 0.86, whiteSpace: 'nowrap' }}>
-                Tattoo<span className="italic">Go</span>
-              </h1>
-              <h2 className="display display-md" style={{ margin: '12px 0 0', color: '#F5F2EB', textShadow: '0 2px 20px rgba(0,0,0,0.7), 0 1px 2px rgba(0,0,0,0.5)', maxWidth: 420, fontSize: 'clamp(18px, 2.4vw, 30px)' }}>
-                {lang === 'tr' ? 'Bir amaçla' : 'Ink,'} <span className="italic">{lang === 'tr' ? 'tene kazınan mürekkep.' : 'revealed with intention.'}</span>
-              </h2>
-            </div>
-            <div className="col" style={{ flex: '0 1 440px', gap: 18, pointerEvents: 'auto' }}>
-              <div className="row gap-3 wrap">
-                <Link to="/dashboard/create-request" className="btn btn-primary">{t('cta.createRequest')}<span className="dot" /></Link>
-                <Link to="/register" className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
-              </div>
-              <div className="row gap-3 wrap" style={{ marginTop: 2 }}>
-                <Badge label={t('badge.verified')} />
-                <Badge label={t('badge.custom')} />
-                <Badge label={t('badge.booking')} />
-              </div>
-            </div>
+          <span
+            aria-hidden
+            style={{
+              width: 'clamp(60px, 10vw, 92px)', height: 'clamp(60px, 10vw, 92px)',
+              color: '#F5F2EB', display: 'inline-flex',
+              filter: 'drop-shadow(0 0 24px rgba(255,255,255,0.25))',
+            }}
+          >
+            <Icon name="logo" size="100%" />
+          </span>
+          <h1 className="display" style={{ margin: 0, color: '#F5F2EB', fontSize: 'clamp(40px, 7vw, 84px)', letterSpacing: '-0.01em', lineHeight: 0.95 }}>
+            Tattoo<span className="italic">Go</span>
+          </h1>
+          <p style={{ margin: 0, color: 'rgba(245,242,235,0.72)', fontSize: 'clamp(14px, 2.4vw, 18px)', maxWidth: 440, lineHeight: 1.5 }}>
+            {lang === 'tr' ? 'Bir amaçla tene kazınan mürekkep.' : 'Ink, revealed with intention.'}
+          </p>
+          <div className="row gap-3 wrap" style={{ justifyContent: 'center', marginTop: 8 }}>
+            <Link to="/dashboard/create-request" className="btn" style={{ background: '#F5F2EB', color: '#000', borderColor: '#F5F2EB' }}>{t('cta.createRequest')}<span className="dot" /></Link>
+            <Link to="/register" className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
           </div>
         </div>
       </section>
@@ -218,14 +190,5 @@ export function Landing() {
 
       <Footer />
     </>
-  );
-}
-
-function Badge({ label }: { label: string }) {
-  return (
-    <span className="row center gap-2 mono hero-badge">
-      <span style={{ width: 6, height: 6, borderRadius: 999, background: 'currentColor' }} />
-      {label}
-    </span>
   );
 }

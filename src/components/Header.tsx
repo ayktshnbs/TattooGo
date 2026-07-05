@@ -8,7 +8,7 @@ import { Icon } from './Icon';
 
 const DESKTOP_BP = 940; // breakpoint above which the full nav is shown
 
-export function Header({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
+export function Header({ tone = 'light', overHero = false }: { tone?: 'light' | 'dark'; overHero?: boolean }) {
   const { t } = useLang();
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -32,11 +32,16 @@ export function Header({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
 
   useEffect(() => { setMenuOpen(false); }, [loc.pathname]);
 
-  const isDark = tone === 'dark';
-  const bg = isDark
-    ? (scrolled ? 'rgba(15,13,11,0.92)' : 'rgba(15,13,11,0.6)')
-    : (scrolled ? 'rgba(239,234,227,0.92)' : 'rgba(239,234,227,0.6)');
-  const border = scrolled ? (isDark ? 'var(--night-hairline)' : 'var(--hairline)') : 'transparent';
+  // Over a dark hero (landing) the bar is transparent with light content while
+  // at the top, then switches to the normal solid bar once scrolled past it.
+  const heroLight = overHero && !scrolled;
+  const isDark = tone === 'dark' || heroLight;
+  const bg = heroLight
+    ? 'transparent'
+    : tone === 'dark'
+      ? (scrolled ? 'rgba(15,13,11,0.92)' : 'rgba(15,13,11,0.6)')
+      : (scrolled ? 'rgba(239,234,227,0.92)' : 'rgba(239,234,227,0.6)');
+  const border = scrolled ? (tone === 'dark' ? 'var(--night-hairline)' : 'var(--hairline)') : 'transparent';
   const ink = isDark ? 'var(--night-text)' : 'var(--ink)';
 
   return (
@@ -44,14 +49,15 @@ export function Header({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
       <header
         style={{
           position: 'fixed', top: 0, left: 0, right: 0, zIndex: 50,
-          background: bg, backdropFilter: 'saturate(140%) blur(14px)',
-          WebkitBackdropFilter: 'saturate(140%) blur(14px)',
+          background: bg,
+          backdropFilter: heroLight ? 'none' : 'saturate(140%) blur(14px)',
+          WebkitBackdropFilter: heroLight ? 'none' : 'saturate(140%) blur(14px)',
           borderBottom: `1px solid ${border}`,
           transition: 'background .4s var(--ease-out), border-color .4s var(--ease-out)',
         }}
       >
-        <div className="container row center between" style={{ paddingBlock: 14 }}>
-          <Logo tone={tone} />
+        <div className="container row center between" style={{ paddingBlock: 14, color: ink }}>
+          <Logo tone={isDark ? 'dark' : 'light'} />
 
           {isDesktop ? (
             <div className="row center gap-4">
@@ -59,10 +65,10 @@ export function Header({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
               <NavLink to="/artists">{t('nav.artists')}</NavLink>
               <NavLink to="/designs">{t('nav.designs')}</NavLink>
               <NavLink to="/categories">{t('nav.categories')}</NavLink>
-              <span style={{ width: 1, height: 18, background: 'var(--hairline-strong)', opacity: isDark ? 0.4 : 1 }} />
-              <LanguageSwitcher tone={tone} />
+              <span style={{ width: 1, height: 18, background: isDark ? 'var(--night-hairline)' : 'var(--hairline-strong)' }} />
+              <LanguageSwitcher tone={isDark ? 'dark' : 'light'} />
               <Link to="/login" className="mono" style={{ color: ink }}>{t('nav.login')}</Link>
-              <Link to="/register" className="btn btn-sm">{t('nav.signup')}</Link>
+              <Link to="/register" className={`btn btn-sm ${isDark ? 'btn-glass' : ''}`}>{t('nav.signup')}</Link>
               <button
                 className="mono row center gap-2"
                 aria-label="Open index"
@@ -75,7 +81,7 @@ export function Header({ tone = 'light' }: { tone?: 'light' | 'dark' }) {
             </div>
           ) : (
             <div className="row center gap-3">
-              <LanguageSwitcher tone={tone} />
+              <LanguageSwitcher tone={isDark ? 'dark' : 'light'} />
               <button
                 aria-label="Open menu"
                 onClick={() => setMenuOpen(true)}
