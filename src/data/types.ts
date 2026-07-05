@@ -74,6 +74,8 @@ export interface TattooDesign {
   views: number;
   imageRatio: number; // 0.6 .. 1.4
   swatch: string; // gradient swatch token
+  imageUrl?: string; // real uploaded image (data URL in the prototype, CDN URL later)
+  source?: 'artist' | 'customer'; // who submitted it — undefined for seeded mock data
   createdAt: string;
 }
 

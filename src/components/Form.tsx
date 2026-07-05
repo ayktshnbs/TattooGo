@@ -59,7 +59,13 @@ export function ChoiceGroup<T extends string>({ options, value, onChange }: Choi
   );
 }
 
-export function UploadImage({ label }: { label?: string }) {
+export function UploadImage({ label, onImage, preview }: {
+  label?: string;
+  /** Called with a downscaled data URL + aspect ratio when a real image is picked. */
+  onImage?: (dataUrl: string, ratio: number) => void;
+  /** Currently selected image (controlled preview), shown inside the dropzone. */
+  preview?: string | null;
+}) {
   const [files, setFiles] = useState<string[]>([]);
   return (
     <div className="col gap-3">
@@ -67,27 +73,38 @@ export function UploadImage({ label }: { label?: string }) {
       <div
         style={{
           border: '1px dashed var(--hairline-strong)',
-          padding: '32px 20px',
+          padding: preview ? 12 : '32px 20px',
           background: 'var(--paper-warm)',
           textAlign: 'center',
         }}
       >
-        <div className="mono text-muted" style={{ marginBottom: 12 }}>Drag images or</div>
-        <label className="btn btn-sm" style={{ cursor: 'pointer' }}>
+        {preview ? (
+          <img src={preview} alt="" style={{ width: '100%', maxHeight: 320, objectFit: 'contain', display: 'block', borderRadius: 8 }} />
+        ) : (
+          <div className="mono text-muted" style={{ marginBottom: 12 }}>Drag images or</div>
+        )}
+        <label className="btn btn-sm" style={{ cursor: 'pointer', marginTop: preview ? 12 : 0 }}>
           <input
             type="file"
-            multiple
+            accept="image/*"
             style={{ display: 'none' }}
-            onChange={(e) => {
+            onChange={async (e) => {
               const list = e.target.files;
-              if (!list) return;
-              const names = Array.from(list).map(f => f.name);
-              setFiles(prev => [...prev, ...names]);
+              if (!list || list.length === 0) return;
+              const file = list[0];
+              setFiles([file.name]);
+              if (onImage) {
+                const { fileToUpload } = await import('../data/uploads');
+                try {
+                  const { dataUrl, ratio } = await fileToUpload(file);
+                  onImage(dataUrl, ratio);
+                } catch { /* unreadable file — keep the dropzone as-is */ }
+              }
             }}
           />
-          Select image
+          {preview ? 'Replace image' : 'Select image'}
         </label>
-        {files.length > 0 && (
+        {!preview && files.length > 0 && (
           <div className="row wrap gap-2 center-text" style={{ justifyContent: 'center', marginTop: 16 }}>
             {files.map((f, i) => <span key={i} className="tag tag-soft">{f}</span>)}
           </div>

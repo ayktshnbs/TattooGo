@@ -6,6 +6,8 @@ import { StatsCard, OfferCard, NotificationItem, ConversationRow, AppointmentCar
 import { useLang } from '../../i18n/LangContext';
 import { useReveal } from '../../hooks/useReveal';
 import { OFFERS, NOTIFICATIONS, CONVERSATIONS, MESSAGES, APPOINTMENTS, DESIGNS, REVIEWS, STYLES, CITIES, CAMPAIGNS, ARTIST_MEMBERS, MATERIALS, REQUESTS, ARTISTS } from '../../data/mock';
+import { addUpload } from '../../data/uploads';
+import type { TattooStyle } from '../../data/types';
 import { AvatarBubble, Swatch } from '../../components/Visual';
 
 /* ---------- Home ---------- */
@@ -81,17 +83,44 @@ export function AddTattoo() {
   const { lang } = useLang();
   const [tags, setTags] = useState<string[]>(['fine-line', 'botanical']);
   const [tagInput, setTagInput] = useState('');
-  const ok = tags.length >= 3;
+  const [title, setTitle] = useState('');
+  const [style, setStyle] = useState<TattooStyle>(STYLES[0].key);
+  const [image, setImage] = useState<{ url: string; ratio: number } | null>(null);
+  const [published, setPublished] = useState(false);
+  const ok = tags.length >= 3 && title.trim().length > 0 && !!image;
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme ekle' : 'Add tattoo'} subtitle={lang === 'tr' ? 'Portföyünüze yeni bir parça ekleyin.' : 'Add a new piece to your portfolio.'}>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme ekle' : 'Add tattoo'} subtitle={lang === 'tr' ? 'Portföyünüze yeni bir parça ekleyin — ana sayfa akışında görünür.' : 'Add a new piece to your portfolio — it shows up in the landing feed.'}>
       <div className="split">
-        <form className="col" onSubmit={(e) => e.preventDefault()}>
+        <form
+          className="col"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!ok || !image) return;
+            const saved = addUpload({
+              title: title.trim(), artistName: 'Aslı Vardar', style, tags,
+              imageUrl: image.url, imageRatio: image.ratio, source: 'artist',
+            });
+            if (saved) { setPublished(true); setTitle(''); setImage(null); }
+          }}
+        >
+          {published && (
+            <div className="card card-pad" style={{ marginBottom: 16, borderColor: 'var(--ink)' }}>
+              <span className="mono">✓ {lang === 'tr' ? 'Yayınlandı — ana sayfa akışında.' : 'Published — now live in the landing feed.'}</span>
+              {' '}<Link to="/" className="mono" style={{ textDecoration: 'underline' }}>{lang === 'tr' ? 'Gör' : 'View'}</Link>
+            </div>
+          )}
           <Field label={lang === 'tr' ? 'Görsel' : 'Image'}>
-            <UploadImage label={lang === 'tr' ? 'Görsel yükle' : 'Upload image'} />
+            <UploadImage
+              label={lang === 'tr' ? 'Görsel yükle' : 'Upload image'}
+              preview={image?.url}
+              onImage={(url, ratio) => { setImage({ url, ratio }); setPublished(false); }}
+            />
           </Field>
-          <Field label={lang === 'tr' ? 'Başlık' : 'Title'}><Input placeholder={lang === 'tr' ? 'Sessiz çiçek' : 'Quiet bloom'} /></Field>
+          <Field label={lang === 'tr' ? 'Başlık' : 'Title'}>
+            <Input placeholder={lang === 'tr' ? 'Sessiz çiçek' : 'Quiet bloom'} value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
           <Field label={lang === 'tr' ? 'Stil' : 'Style'}>
-            <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} />
+            <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value as TattooStyle)} />
           </Field>
           <Field label={lang === 'tr' ? 'Etiketler (en az 3)' : 'Tags (min 3)'} hint={`${tags.length} / 3 ${ok ? '✓' : ''}`}>
             <div className="row wrap gap-2" style={{ marginBottom: 8 }}>
@@ -124,10 +153,12 @@ export function AddTattoo() {
           </div>
         </form>
         <aside className="card col">
-          <Swatch id="sw-3" ratio={1.1} dark />
+          {image
+            ? <img src={image.url} alt="" style={{ width: '100%', aspectRatio: image.ratio, objectFit: 'cover', display: 'block' }} />
+            : <Swatch id="sw-3" ratio={1.1} dark />}
           <div className="card-pad col gap-2">
             <span className="mono text-muted">{lang === 'tr' ? 'Önizleme' : 'Preview'}</span>
-            <h3 className="display" style={{ fontSize: 22, margin: 0 }}>—</h3>
+            <h3 className="display" style={{ fontSize: 22, margin: 0 }}>{title.trim() || '—'}</h3>
             <span className="mono text-muted">{lang === 'tr' ? 'Aslı Vardar tarafından' : 'by Aslı Vardar'}</span>
             <div className="row wrap gap-2">{tags.map(t => <span key={t} className="tag tag-soft">{t}</span>)}</div>
           </div>

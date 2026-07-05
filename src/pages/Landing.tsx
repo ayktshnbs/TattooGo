@@ -1,16 +1,48 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { StarField } from '../components/StarField';
 import { Icon } from '../components/Icon';
 import { DESIGNS } from '../data/mock';
+import { getUploads, UPLOADS_EVENT } from '../data/uploads';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
 import { Swatch } from '../components/Visual';
 
+const FEED_BATCH = 8;
+
 export function Landing() {
   const { t, lang } = useLang();
   useReveal();
+
+  // Community uploads (artists + customers) float on top of the seeded
+  // designs. Re-read when a publish happens in this tab or another one.
+  const [uploads, setUploads] = useState(getUploads);
+  useEffect(() => {
+    const refresh = () => setUploads(getUploads());
+    window.addEventListener(UPLOADS_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(UPLOADS_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+  const feed = useMemo(() => [...uploads, ...DESIGNS], [uploads]);
+
+  // Infinite scroll — reveal the feed in batches as the sentinel enters view.
+  const [visible, setVisible] = useState(FEED_BATCH);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || visible >= feed.length) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) setVisible(v => Math.min(v + FEED_BATCH, feed.length)); },
+      { rootMargin: '600px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible, feed.length]);
 
   return (
     <>
@@ -52,10 +84,12 @@ export function Landing() {
             <Link to="/designs" className="mono">{t('common.viewAll')} →</Link>
           </div>
           <div className="pin-feed">
-            {DESIGNS.map((d, i) => (
+            {feed.slice(0, visible).map((d, i) => (
               <Link key={d.id} to="/designs" className="pin reveal" style={{ ['--delay' as any]: `${(i % 4) * 50}ms` }}>
                 <div className="pin-media">
-                  <Swatch id={d.swatch} ratio={d.imageRatio} />
+                  {d.imageUrl
+                    ? <img src={d.imageUrl} alt={d.title} loading="lazy" style={{ width: '100%', aspectRatio: d.imageRatio, objectFit: 'cover', display: 'block' }} />
+                    : <Swatch id={d.swatch} ratio={d.imageRatio} />}
                 </div>
                 <div className="pin-caption">
                   <strong>{d.title}</strong>
@@ -64,6 +98,7 @@ export function Landing() {
               </Link>
             ))}
           </div>
+          {visible < feed.length && <div ref={sentinelRef} aria-hidden style={{ height: 1 }} />}
         </div>
       </section>
 

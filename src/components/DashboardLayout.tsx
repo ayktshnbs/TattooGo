@@ -33,7 +33,8 @@ export function DashboardLayout({ scope, title, subtitle, children }: Props) {
     { to: '/dashboard/appointments',    num: '08', label: t('cust.appointments') },
     { to: '/dashboard/tracking',        num: '09', label: t('cust.tracking') },
     { to: '/dashboard/reviews',         num: '10', label: t('cust.reviews') },
-    { to: '/dashboard/profile',         num: '11', label: t('cust.profile') },
+    { to: '/dashboard/share-ink',       num: '11', label: lang === 'tr' ? 'Mürekkebini paylaş' : 'Share your ink' },
+    { to: '/dashboard/profile',         num: '12', label: t('cust.profile') },
   ];
 
   const studioNav: NavItem[] = [
