@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { list } from '@vercel/blob';
-import { readCollection, type RequestRow, type OfferRow, type ReviewRow, type MessageRow } from './_lib/db.js';
+import { readCollection, readFeedIndex, type RequestRow, type OfferRow, type ReviewRow, type MessageRow } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
 
 /**
@@ -58,17 +57,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Portfolio counts come from the moderated feed index.
     let portfolio = { approved: 0, pending: 0 };
     try {
-      const { blobs } = await list({ prefix: 'feed/index.json', limit: 1 });
-      if (blobs.length > 0) {
-        const feed = await (await fetch(`${blobs[0].url}?nc=${Date.now().toString(36)}`, { cache: 'no-store' })).json();
-        if (Array.isArray(feed)) {
-          const mine = feed.filter((e: { artistId?: string }) => e.artistId === user.id);
-          portfolio = {
-            approved: mine.filter((e: { status?: string }) => e.status !== 'pending').length,
-            pending: mine.filter((e: { status?: string }) => e.status === 'pending').length,
-          };
-        }
-      }
+      const feed = await readFeedIndex<{ artistId?: string; status?: string }>();
+      const mine = feed.filter(e => e.artistId === user.id);
+      portfolio = {
+        approved: mine.filter(e => e.status !== 'pending').length,
+        pending: mine.filter(e => e.status === 'pending').length,
+      };
     } catch { /* feed unavailable — keep zeros */ }
 
     return res.status(200).json({

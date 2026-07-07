@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { del, list, put } from '@vercel/blob';
+import { del, put } from '@vercel/blob';
+import { readFeedIndex, writeFeedIndex } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
 
 /**
@@ -17,7 +18,6 @@ import { getSessionUser } from './_lib/auth.js';
  * Anti-abuse: per-artist daily cap, global pending cap, JPEG magic bytes.
  */
 
-const INDEX_PATH = 'feed/index.json';
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PER_ARTIST_PER_DAY = 10;
 const MAX_PENDING_QUEUE = 50;
@@ -47,24 +47,10 @@ function isAdmin(req: VercelRequest): boolean {
   return ADMIN_TOKEN.length > 0 && req.headers['x-admin-token'] === ADMIN_TOKEN;
 }
 
-async function readIndex(): Promise<FeedEntry[]> {
-  const { blobs } = await list({ prefix: INDEX_PATH, limit: 1 });
-  if (blobs.length === 0) return [];
-  // Cache-buster — see db.ts: overwritten blob content can be CDN-stale.
-  const res = await fetch(`${blobs[0].url}?nc=${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`, { cache: 'no-store' });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
-}
-
-async function writeIndex(entries: FeedEntry[]): Promise<void> {
-  await put(INDEX_PATH, JSON.stringify(entries), {
-    access: 'public',
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType: 'application/json',
-  });
-}
+// Versioned reads/writes via _lib/db — immune to the Blob CDN's
+// stale-overwrite caching (see db.ts).
+const readIndex = () => readFeedIndex<FeedEntry>();
+const writeIndex = (entries: FeedEntry[]) => writeFeedIndex(entries);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
