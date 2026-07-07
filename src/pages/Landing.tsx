@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { StarField } from '../components/StarField';
 import { Icon } from '../components/Icon';
-import { DESIGNS } from '../data/mock';
 import { getUploads, fetchUploads, UPLOADS_EVENT } from '../data/uploads';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
-import { Swatch } from '../components/Visual';
 
 const FEED_BATCH = 8;
 
@@ -16,9 +14,9 @@ export function Landing() {
   const { t, lang } = useLang();
   useReveal();
 
-  // Community uploads (artists + customers) float on top of the seeded
-  // designs. Local cache paints instantly, then the shared feed from the API
-  // replaces it; re-fetch when a publish happens in this tab or another one.
+  // The feed is real artist work only — approved portfolio uploads from the
+  // API. Local cache paints instantly, then the shared feed replaces it;
+  // re-fetch when a publish happens in this tab or another one.
   const [uploads, setUploads] = useState(getUploads);
   useEffect(() => {
     let alive = true;
@@ -32,7 +30,7 @@ export function Landing() {
       window.removeEventListener('storage', refresh);
     };
   }, []);
-  const feed = useMemo(() => [...uploads, ...DESIGNS], [uploads]);
+  const feed = uploads;
 
   // Infinite scroll — reveal the feed in batches as the sentinel enters view.
   const [visible, setVisible] = useState(FEED_BATCH);
@@ -69,9 +67,6 @@ export function Landing() {
           <h1 className="display notranslate" translate="no" style={{ margin: '-6px 0 0', color: '#F5F2EB', fontSize: 'clamp(40px, 7vw, 84px)', letterSpacing: '-0.01em', lineHeight: 0.95 }}>
             Tattoo<span className="italic">Go</span>
           </h1>
-          <p style={{ margin: 0, color: 'rgba(245,242,235,0.72)', fontSize: 'clamp(14px, 2.4vw, 18px)', maxWidth: 440, lineHeight: 1.5 }}>
-            {lang === 'tr' ? 'Bir amaçla tene kazınan mürekkep.' : 'Ink, revealed with intention.'}
-          </p>
           <div className="row gap-3 wrap" style={{ justifyContent: 'center', marginTop: 8 }}>
             <Link to="/dashboard/create-request" className="btn" style={{ background: '#F5F2EB', color: '#000', borderColor: '#F5F2EB' }}>{t('cta.createRequest')}<span className="dot" /></Link>
             <Link to="/register" className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
@@ -87,21 +82,31 @@ export function Landing() {
             <span className="mono text-muted">{lang === 'tr' ? 'Tasarımlar' : 'Designs'}</span>
             <Link to="/designs" className="mono">{t('common.viewAll')} →</Link>
           </div>
-          <div className="pin-feed">
-            {feed.slice(0, visible).map((d, i) => (
-              <Link key={d.id} to="/designs" className="pin reveal" style={{ ['--delay' as any]: `${(i % 4) * 50}ms` }}>
-                <div className="pin-media">
-                  {d.imageUrl
-                    ? <img src={d.imageUrl} alt={d.title} loading="lazy" style={{ width: '100%', aspectRatio: d.imageRatio, objectFit: 'cover', display: 'block' }} />
-                    : <Swatch id={d.swatch} ratio={d.imageRatio} />}
-                </div>
-                <div className="pin-caption">
-                  <strong>{d.title}</strong>
-                  <span>{d.artistName}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
+          {feed.length === 0 ? (
+            <div className="col center" style={{ padding: 'clamp(48px, 7vw, 96px) 24px', textAlign: 'center', gap: 12, border: '1px dashed var(--hairline-strong)' }}>
+              <span className="display" style={{ fontSize: 24 }}>{lang === 'tr' ? 'İlk işler yolda' : 'First pieces are on their way'}</span>
+              <p className="text-muted" style={{ margin: 0, maxWidth: 460, fontSize: 14 }}>
+                {lang === 'tr'
+                  ? 'Onaylı sanatçılar çalışmalarını yükledikçe akış burada canlanacak.'
+                  : 'As verified artists publish their work, the feed comes alive here.'}
+              </p>
+              <Link to="/register" className="btn btn-sm btn-accent" style={{ marginTop: 8 }}>{t('cta.joinAsArtist')}</Link>
+            </div>
+          ) : (
+            <div className="pin-feed">
+              {feed.slice(0, visible).map((d, i) => (
+                <Link key={d.id} to="/designs" className="pin reveal" style={{ ['--delay' as any]: `${(i % 4) * 50}ms` }}>
+                  <div className="pin-media">
+                    <img src={d.imageUrl} alt={d.title} loading="lazy" style={{ width: '100%', aspectRatio: d.imageRatio, objectFit: 'cover', display: 'block' }} />
+                  </div>
+                  <div className="pin-caption">
+                    <strong>{d.title}</strong>
+                    <span>{d.artistName}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
           {visible < feed.length && <div ref={sentinelRef} aria-hidden style={{ height: 1 }} />}
         </div>
       </section>

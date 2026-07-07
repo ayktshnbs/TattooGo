@@ -1,78 +1,164 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { Field, Input, Textarea, Select, ChoiceGroup, UploadImage } from '../../components/Form';
-import { StatsCard, OfferCard, NotificationItem, ConversationRow, AppointmentCard, TattooCard, ReviewCard, CampaignCard, ArtistMemberRow, MaterialCard, RequestCard, ProfileCard } from '../../components/Cards';
+import { StatsCard } from '../../components/Cards';
+import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useLang } from '../../i18n/LangContext';
+import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
-import { OFFERS, NOTIFICATIONS, CONVERSATIONS, MESSAGES, APPOINTMENTS, DESIGNS, REVIEWS, STYLES, CITIES, CAMPAIGNS, ARTIST_MEMBERS, MATERIALS, REQUESTS, ARTISTS } from '../../data/mock';
-import { addUpload } from '../../data/uploads';
-import type { TattooStyle } from '../../data/types';
-import { AvatarBubble, Swatch } from '../../components/Visual';
+import { STYLES } from '../../data/mock';
+import {
+  dashboard, requests, offers, reviews, portfolio,
+  type ApiRequest, type ApiOffer, type ArtistDashboard, type ApiPortfolioItem,
+} from '../../lib/api';
+import { MessagesPage } from '../customer/Customer';
+
+/**
+ * Artist / studio dashboard — every number and list is the signed-in
+ * artist's real data. A fresh account sees zeros and empty states.
+ */
+
+function useLoad<T>(fn: () => Promise<T>) {
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState('');
+  const load = useCallback(() => {
+    fn().then(d => { setData(d); setError(''); }).catch(e => setError(e instanceof Error ? e.message : 'failed'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  return { data, error, reload: load };
+}
+
+function SectionTitle({ num, label, action }: { num: string; label: string; action?: React.ReactNode }) {
+  return (
+    <div className="row between center" style={{ margin: '40px 0 16px', borderBottom: '1px solid var(--hairline)', paddingBottom: 10 }}>
+      <span className="mono text-muted">{num} · {label}</span>
+      {action}
+    </div>
+  );
+}
+
+const STATUS_LABEL: Record<string, { en: string; tr: string }> = {
+  sent: { en: 'Pending', tr: 'Bekliyor' },
+  accepted: { en: 'Accepted', tr: 'Kabul edildi' },
+  rejected: { en: 'Rejected', tr: 'Reddedildi' },
+  completed: { en: 'Completed', tr: 'Tamamlandı' },
+  open: { en: 'Open', tr: 'Açık' },
+  booked: { en: 'Booked', tr: 'Rezerve' },
+};
+
+function OpenRequestCard({ r, lang }: { r: ApiRequest; lang: string }) {
+  return (
+    <article className="card card-pad col gap-2">
+      <div className="row between center">
+        <strong>{r.title}</strong>
+        <span className="mono text-muted" style={{ fontSize: 11 }}>{r.createdAt}</span>
+      </div>
+      <span className="mono text-muted" style={{ fontSize: 11 }}>
+        {r.customerName} · {r.style} · {r.placement} · {r.size}{r.city ? ` · ${r.city}` : ''}
+      </span>
+      <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.description.slice(0, 140)}{r.description.length > 140 ? '…' : ''}</p>
+      {r.referenceUrl && <img src={r.referenceUrl} alt="" style={{ width: '100%', maxHeight: 220, objectFit: 'cover' }} />}
+      <div className="row between center">
+        <span className="mono">
+          {r.budgetMin != null || r.budgetMax != null
+            ? `₺${(r.budgetMin ?? 0).toLocaleString()} – ₺${(r.budgetMax ?? 0).toLocaleString()}`
+            : (lang === 'tr' ? 'Bütçe belirtilmemiş' : 'No budget set')}
+          {' · '}{r.offerCount} {lang === 'tr' ? 'teklif' : 'offers'}
+        </span>
+        <Link to={`/studio/give-offer?request=${r.id}`} className="btn btn-sm btn-accent">{lang === 'tr' ? 'Teklif ver' : 'Send offer'}</Link>
+      </div>
+    </article>
+  );
+}
 
 /* ---------- Home ---------- */
 export function StudioHome() {
   useReveal();
   const { lang, t } = useLang();
+  const { user } = useAuth();
+  const { data, error } = useLoad(() => dashboard.get() as Promise<ArtistDashboard>);
   return (
     <DashboardLayout
       scope="studio"
-      title={lang === 'tr' ? 'İyi günler, Aslı.' : 'Good afternoon, Aslı.'}
-      subtitle={lang === 'tr' ? 'Bugün için aktif brief’ler, randevular ve istatistik.' : 'Open briefs, today’s appointments, and weekly numbers.'}
+      title={lang === 'tr' ? `Hoş geldin, ${user?.name ?? ''}.` : `Welcome, ${user?.name ?? ''}.`}
+      subtitle={lang === 'tr' ? 'Açık istekler ve işleriniz — yalnızca gerçek veriler.' : 'Open briefs and your work — real data only.'}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 32 }}>
-        <StatsCard label={lang === 'tr' ? 'Açık brief' : 'Open briefs'} value="42" delta="+6 today" />
-        <StatsCard label={lang === 'tr' ? 'Gönderilen teklif' : 'Offers sent'} value="118" delta="+9 week" />
-        <StatsCard label={lang === 'tr' ? 'Kabul oranı' : 'Acceptance rate'} value="38%" delta="+4 pts" />
-        <StatsCard label={lang === 'tr' ? 'Bugünkü randevu' : 'Today appts'} value="3" />
-      </div>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 36 }}>
+            <StatsCard label={lang === 'tr' ? 'Açık istek' : 'Open briefs'} value={String(data.stats.openRequests)} />
+            <StatsCard label={lang === 'tr' ? 'Gönderilen teklif' : 'Offers sent'} value={String(data.stats.offersSent)} />
+            <StatsCard label={lang === 'tr' ? 'Rezerve iş' : 'Booked jobs'} value={String(data.stats.jobsBooked)} />
+            <StatsCard label={lang === 'tr' ? 'Tamamlanan' : 'Completed'} value={String(data.stats.jobsCompleted)} />
+          </div>
 
-      <div className="split">
-        <div>
-          <SectionTitle num="01" label={lang === 'tr' ? 'Size uygun açık brief’ler' : 'Open briefs that match you'} action={<Link to="/studio/give-offer" className="mono">{t('common.viewAll')} →</Link>} />
-          <div className="col gap-3">
-            {REQUESTS.slice(0, 3).map(r => <RequestCard key={r.id} request={r} />)}
-          </div>
-        </div>
-        <div>
-          <SectionTitle num="02" label={lang === 'tr' ? 'Bugünün randevuları' : 'Today’s appointments'} action={<Link to="/studio/calendar" className="mono">{t('common.viewAll')} →</Link>} />
-          <div className="col gap-3">
-            {APPOINTMENTS.filter(a => a.status === 'today' || a.status === 'upcoming').map(a => <AppointmentCard key={a.id} ap={a} />)}
-          </div>
-          <SectionTitle num="03" label={lang === 'tr' ? 'Son aktivite' : 'Recent activity'} />
-          <div className="col">
-            {NOTIFICATIONS.slice(0, 4).map(n => <NotificationItem key={n.id} n={n} />)}
-          </div>
-        </div>
-      </div>
+          <SectionTitle num="B1" label={lang === 'tr' ? 'Açık istekler' : 'Open briefs'} action={<Link to="/studio/give-offer" className="mono">{t('common.viewAll')} →</Link>} />
+          {data.recentRequests.length === 0 ? (
+            <Empty title={lang === 'tr' ? 'Şu an açık istek yok' : 'No open briefs right now'} body={lang === 'tr' ? 'Müşteriler istek oluşturdukça burada görünür.' : 'Customer requests appear here as they are published.'} />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+              {data.recentRequests.slice(0, 2).map(r => <OpenRequestCard key={r.id} r={r} lang={lang} />)}
+            </div>
+          )}
+
+          <SectionTitle num="B2" label={lang === 'tr' ? 'Son tekliflerim' : 'My latest offers'} action={<Link to="/studio/offers" className="mono">{t('common.viewAll')} →</Link>} />
+          {data.recentOffers.length === 0 ? (
+            <Empty title={lang === 'tr' ? 'Henüz teklif göndermediniz' : 'No offers sent yet'} body={lang === 'tr' ? 'Açık isteklere teklif göndererek başlayın.' : 'Start by sending an offer on an open brief.'} cta={lang === 'tr' ? 'İstekleri gör' : 'See open briefs'} to="/studio/give-offer" />
+          ) : (
+            <div className="col gap-3">
+              {data.recentOffers.slice(0, 3).map(o => (
+                <article key={o.id} className="card card-pad row between center">
+                  <div className="col gap-1">
+                    <strong>{o.requestTitle}</strong>
+                    <span className="mono text-muted" style={{ fontSize: 11 }}>{o.customerName} · ₺{o.price.toLocaleString()}</span>
+                  </div>
+                  <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </DashboardLayout>
   );
 }
 
-/* ---------- My tattoos ---------- */
+/* ---------- My tattoos (portfolio) ---------- */
 export function MyTattoos() {
   useReveal();
   const { lang } = useLang();
+  const { data, error } = useLoad(() => portfolio.mine());
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövmelerim' : 'My tattoos'} subtitle={lang === 'tr' ? 'Yüklediğiniz tüm dövmeler.' : 'Everything you have published.'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup value="all" onChange={() => {}} options={[
-          { value: 'all', label: lang === 'tr' ? 'Tümü' : 'All' },
-          ...STYLES.slice(0, 5).map(s => ({ value: s.key, label: s[lang] })),
-        ]} />
-        <Link to="/studio/add-tattoo" className="btn btn-sm btn-accent">{lang === 'tr' ? '＋ Dövme ekle' : '＋ Add tattoo'}</Link>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20 }}>
-        {DESIGNS.map(d => (
-          <div key={d.id} className="col">
-            <TattooCard design={d} />
-            <div className="row between" style={{ padding: '8px 4px' }}>
-              <button className="mono text-muted">{lang === 'tr' ? 'Düzenle' : 'Edit'}</button>
-              <button className="mono text-muted">{lang === 'tr' ? 'Sil' : 'Delete'}</button>
-            </div>
-          </div>
-        ))}
-      </div>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövmelerim' : 'My tattoos'} subtitle={lang === 'tr' ? 'Portföyünüz — onaylananlar ana sayfada görünür.' : 'Your portfolio — approved pieces show on the landing feed.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (data.length === 0 ? (
+        <Empty
+          title={lang === 'tr' ? 'Portföy boş' : 'No portfolio items yet'}
+          body={lang === 'tr' ? 'İlk çalışmanızı yükleyin; onaydan sonra ana sayfada yayınlanır.' : 'Upload your first piece — after review it goes live on the landing feed.'}
+          cta={lang === 'tr' ? 'Dövme ekle' : 'Add a tattoo'}
+          to="/studio/add-tattoo"
+        />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 20 }}>
+          {data.map((d: ApiPortfolioItem) => (
+            <article key={d.id} className="card" style={{ overflow: 'hidden' }}>
+              <img src={d.imageUrl} alt={d.title} style={{ width: '100%', aspectRatio: d.imageRatio || 1, objectFit: 'cover', display: 'block' }} />
+              <div className="card-pad col gap-1">
+                <div className="row between center">
+                  <strong>{d.title}</strong>
+                  <span className="tag tag-soft">{d.status === 'pending' ? (lang === 'tr' ? 'İncelemede' : 'In review') : (lang === 'tr' ? 'Yayında' : 'Live')}</span>
+                </div>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{d.style} · {d.createdAt}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      ))}
     </DashboardLayout>
   );
 }
@@ -81,62 +167,58 @@ export function MyTattoos() {
 export function AddTattoo() {
   useReveal();
   const { lang } = useLang();
-  const [tags, setTags] = useState<string[]>(['fine-line', 'botanical']);
+  const { user } = useAuth();
+  const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [title, setTitle] = useState('');
-  const [style, setStyle] = useState<TattooStyle>(STYLES[0].key);
+  const [style, setStyle] = useState<string>(STYLES[0].key);
   const [image, setImage] = useState<{ url: string; ratio: number } | null>(null);
-  const [notice, setNotice] = useState<'pending' | 'live' | null>(null);
+  const [notice, setNotice] = useState(false);
+  const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const ok = tags.length >= 3 && title.trim().length > 0 && !!image && !busy;
+  const ok = title.trim().length > 0 && !!image && !busy;
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme ekle' : 'Add tattoo'} subtitle={lang === 'tr' ? 'Portföyünüze yeni bir parça ekleyin — ana sayfa akışında görünür.' : 'Add a new piece to your portfolio — it shows up in the landing feed.'}>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme ekle' : 'Add tattoo'} subtitle={lang === 'tr' ? 'Portföyünüze yeni bir parça ekleyin — incelemeden sonra ana sayfada.' : 'Add a new piece — it reaches the landing feed after review.'}>
       <div className="split">
         <form
           className="col"
           onSubmit={async (e) => {
             e.preventDefault();
             if (!ok || !image) return;
-            setBusy(true);
-            const saved = await addUpload({
-              title: title.trim(), artistName: 'Aslı Vardar', style, tags,
-              imageUrl: image.url, imageRatio: image.ratio, source: 'artist',
-            });
-            setBusy(false);
-            if (saved) { setNotice(saved.status === 'pending' ? 'pending' : 'live'); setTitle(''); setImage(null); }
+            setBusy(true); setError('');
+            try {
+              await portfolio.publish({ title: title.trim(), style, tags, imageData: image.url, imageRatio: image.ratio });
+              setNotice(true); setTitle(''); setImage(null); setTags([]);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'failed');
+            } finally {
+              setBusy(false);
+            }
           }}
         >
           {notice && (
             <div className="card card-pad" style={{ marginBottom: 16, borderColor: 'var(--ink)' }}>
-              {notice === 'pending' ? (
-                <span className="mono">✓ {lang === 'tr' ? 'Gönderildi — incelendikten sonra akışta yayınlanır.' : 'Submitted — appears in the feed once reviewed.'}</span>
-              ) : (
-                <>
-                  <span className="mono">✓ {lang === 'tr' ? 'Yayınlandı — ana sayfa akışında.' : 'Published — now live in the landing feed.'}</span>
-                  {' '}<Link to="/" className="mono" style={{ textDecoration: 'underline' }}>{lang === 'tr' ? 'Gör' : 'View'}</Link>
-                </>
-              )}
+              <span className="mono">✓ {lang === 'tr' ? 'Gönderildi — incelendikten sonra yayınlanır.' : 'Submitted — appears in the feed once reviewed.'}</span>
             </div>
           )}
+          {error && <div style={{ marginBottom: 16 }}><ErrorNote message={error} /></div>}
           <Field label={lang === 'tr' ? 'Görsel' : 'Image'}>
             <UploadImage
               label={lang === 'tr' ? 'Görsel yükle' : 'Upload image'}
               preview={image?.url}
-              onImage={(url, ratio) => { setImage({ url, ratio }); setNotice(null); }}
+              onImage={(url, ratio) => { setImage({ url, ratio }); setNotice(false); }}
             />
           </Field>
           <Field label={lang === 'tr' ? 'Başlık' : 'Title'}>
-            <Input placeholder={lang === 'tr' ? 'Sessiz çiçek' : 'Quiet bloom'} value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
           <Field label={lang === 'tr' ? 'Stil' : 'Style'}>
-            <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value as TattooStyle)} />
+            <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value)} />
           </Field>
-          <Field label={lang === 'tr' ? 'Etiketler (en az 3)' : 'Tags (min 3)'} hint={`${tags.length} / 3 ${ok ? '✓' : ''}`}>
+          <Field label={lang === 'tr' ? 'Etiketler' : 'Tags'}>
             <div className="row wrap gap-2" style={{ marginBottom: 8 }}>
               {tags.map(t => (
-                <span key={t} className="tag" onClick={() => setTags(tags.filter(x => x !== t))} style={{ cursor: 'pointer' }}>
-                  {t} ×
-                </span>
+                <span key={t} className="tag" onClick={() => setTags(tags.filter(x => x !== t))} style={{ cursor: 'pointer' }}>{t} ×</span>
               ))}
             </div>
             <Input
@@ -152,23 +234,18 @@ export function AddTattoo() {
               }}
             />
           </Field>
-          <Field label={lang === 'tr' ? 'Şehir (opsiyonel)' : 'City (optional)'}>
-            <Select options={[{ value: '', label: '—' }, ...CITIES.map(c => ({ value: c, label: c }))]} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Fiyat (opsiyonel)' : 'Price (optional)'}><Input type="number" placeholder="₺" /></Field>
           <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-accent" type="submit" disabled={!ok}>{busy ? (lang === 'tr' ? 'Yükleniyor…' : 'Uploading…') : (lang === 'tr' ? 'Yayınla' : 'Publish')}</button>
-            <button className="btn btn-ghost" type="button">{lang === 'tr' ? 'Taslak' : 'Save draft'}</button>
+            <button className="btn btn-accent" type="submit" disabled={!ok}>
+              {busy ? (lang === 'tr' ? 'Yükleniyor…' : 'Uploading…') : (lang === 'tr' ? 'Yayınla' : 'Publish')}
+            </button>
           </div>
         </form>
         <aside className="card col">
-          {image
-            ? <img src={image.url} alt="" style={{ width: '100%', aspectRatio: image.ratio, objectFit: 'cover', display: 'block' }} />
-            : <Swatch id="sw-3" ratio={1.1} dark />}
+          {image && <img src={image.url} alt="" style={{ width: '100%', aspectRatio: image.ratio, objectFit: 'cover', display: 'block' }} />}
           <div className="card-pad col gap-2">
             <span className="mono text-muted">{lang === 'tr' ? 'Önizleme' : 'Preview'}</span>
             <h3 className="display" style={{ fontSize: 22, margin: 0 }}>{title.trim() || '—'}</h3>
-            <span className="mono text-muted">{lang === 'tr' ? 'Aslı Vardar tarafından' : 'by Aslı Vardar'}</span>
+            <span className="mono text-muted">{user?.name}</span>
             <div className="row wrap gap-2">{tags.map(t => <span key={t} className="tag tag-soft">{t}</span>)}</div>
           </div>
         </aside>
@@ -181,60 +258,82 @@ export function AddTattoo() {
 export function GiveOffer() {
   useReveal();
   const { lang } = useLang();
-  const [requestId, setRequestId] = useState(REQUESTS[0].id);
-  const req = REQUESTS.find(r => r.id === requestId)!;
+  const { data, error, reload } = useLoad(() => requests.list());
+  const params = new URLSearchParams(window.location.search);
+  const [requestId, setRequestId] = useState(params.get('request') ?? '');
+  const [price, setPrice] = useState('');
+  const [message, setMessage] = useState('');
+  const [appointmentAt, setAppointmentAt] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [err, setErr] = useState('');
+  const selected = (data ?? []).find(r => r.id === requestId) ?? null;
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Teklif ver' : 'Give offer'} subtitle={lang === 'tr' ? 'Bir brief seçin ve teklifinizi hazırlayın.' : 'Pick a brief and prepare your offer.'}>
-      <div className="split">
-        <div className="col gap-3">
-          <span className="mono text-muted">{lang === 'tr' ? 'Brief seçin' : 'Choose a brief'}</span>
-          {REQUESTS.map(r => (
-            <button key={r.id} onClick={() => setRequestId(r.id)} style={{ textAlign: 'left' }}>
-              <div className="card card-pad col gap-1" style={{ borderColor: requestId === r.id ? 'var(--ink)' : 'var(--hairline)', background: requestId === r.id ? 'rgba(0,0,0,0.04)' : 'transparent' }}>
-                <span className="mono text-muted">#{r.id.toUpperCase()} · {r.style} · {r.city}</span>
-                <strong>{r.title}</strong>
-                <span className="mono text-muted">₺{r.budgetMin.toLocaleString()}–₺{r.budgetMax.toLocaleString()} · {r.offerCount} offers</span>
-              </div>
-            </button>
-          ))}
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Teklif ver' : 'Send an offer'} subtitle={lang === 'tr' ? 'Açık müşteri istekleri — gerçek zamanlı.' : 'Open customer briefs — live.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (data.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Şu an açık istek yok' : 'No open briefs right now'} body={lang === 'tr' ? 'Müşteriler istek yayınladıkça burada görünür.' : 'When customers publish requests they appear here.'} />
+      ) : (
+        <div className="split">
+          <div className="col gap-3">
+            {data.map(r => (
+              <button key={r.id} onClick={() => { setRequestId(r.id); setDone(false); }} style={{ textAlign: 'left' }}>
+                <div className="card card-pad col gap-1" style={{ borderColor: r.id === requestId ? 'var(--ink)' : undefined }}>
+                  <div className="row between center">
+                    <strong>{r.title}</strong>
+                    <span className="mono text-muted" style={{ fontSize: 11 }}>{r.offerCount} {lang === 'tr' ? 'teklif' : 'offers'}</span>
+                  </div>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{r.customerName} · {r.style} · {r.placement}{r.city ? ` · ${r.city}` : ''}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div>
+            {!selected ? (
+              <Empty title={lang === 'tr' ? 'Bir istek seçin' : 'Select a brief'} body={lang === 'tr' ? 'Soldan bir istek seçerek teklif hazırlayın.' : 'Pick a brief on the left to draft your offer.'} />
+            ) : (
+              <form
+                className="card card-pad col gap-4"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setBusy(true); setErr('');
+                  try {
+                    await offers.create({ requestId: selected.id, price: Number(price), message: message.trim(), appointmentAt: appointmentAt || undefined });
+                    setDone(true); setPrice(''); setMessage(''); setAppointmentAt('');
+                    reload();
+                  } catch (e2) {
+                    setErr(e2 instanceof Error ? e2.message : 'failed');
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {done && <span className="mono">✓ {lang === 'tr' ? 'Teklif gönderildi.' : 'Offer sent.'}</span>}
+                {err && <span className="mono">⚠ {err}</span>}
+                <div className="col gap-1">
+                  <strong>{selected.title}</strong>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{selected.customerName}</span>
+                  <p className="text-muted" style={{ margin: '8px 0 0', fontSize: 14 }}>{selected.description}</p>
+                  {selected.referenceUrl && <img src={selected.referenceUrl} alt="" style={{ width: '100%', maxHeight: 260, objectFit: 'cover', marginTop: 8 }} />}
+                </div>
+                <Field label={lang === 'tr' ? 'Fiyat (₺)' : 'Price (₺)'}>
+                  <Input type="number" min={1} value={price} onChange={(e) => setPrice(e.target.value)} required />
+                </Field>
+                <Field label={lang === 'tr' ? 'Mesajınız' : 'Your message'}>
+                  <Textarea rows={4} value={message} onChange={(e) => setMessage(e.target.value)} required />
+                </Field>
+                <Field label={lang === 'tr' ? 'Önerilen tarih (opsiyonel)' : 'Proposed date (optional)'}>
+                  <Input type="date" value={appointmentAt} onChange={(e) => setAppointmentAt(e.target.value)} />
+                </Field>
+                <button className="btn btn-accent" type="submit" disabled={busy || !price || !message.trim()}>
+                  {busy ? '…' : (lang === 'tr' ? 'Teklifi gönder' : 'Send offer')}
+                </button>
+              </form>
+            )}
+          </div>
         </div>
-        <form className="col" onSubmit={(e) => e.preventDefault()}>
-          <span className="mono text-muted">{lang === 'tr' ? 'Teklifiniz' : 'Your offer'}</span>
-          <h3 className="display" style={{ fontSize: 26, margin: '6px 0 4px' }}>{req.title}</h3>
-          <p className="text-muted" style={{ margin: 0 }}>{req.description}</p>
-          <hr className="hr" style={{ marginBlock: 20 }} />
-          <div className="row gap-4 wrap">
-            <Field label={lang === 'tr' ? 'Fiyat (₺)' : 'Price (₺)'}><Input type="number" defaultValue={3200} /></Field>
-            <Field label={lang === 'tr' ? 'Tahmini süre (saat)' : 'Estimated duration (h)'}><Input type="number" defaultValue={3} /></Field>
-          </div>
-          <div className="row gap-4 wrap">
-            <Field label={lang === 'tr' ? 'Randevu tarihi' : 'Appointment date'}><Input type="datetime-local" /></Field>
-            <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
-              <Select options={CITIES.map(c => ({ value: c, label: c }))} />
-            </Field>
-          </div>
-          <Field label={lang === 'tr' ? 'Mesaj' : 'Offer message'}>
-            <Textarea rows={4} placeholder={lang === 'tr' ? 'Brief’e nasıl yaklaşacağınızı anlatın…' : 'Describe your approach to the brief…'} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Tasarım / referans' : 'Proposed design / reference'}>
-            <UploadImage label={lang === 'tr' ? 'Görsel yükle' : 'Upload image'} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Teklif geçerlilik' : 'Offer validity'}>
-            <Select options={[
-              { value: '3', label: '3 days' },
-              { value: '7', label: '7 days' },
-              { value: '14', label: '14 days' },
-            ]} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Notlar / şartlar' : 'Notes / terms'}>
-            <Textarea rows={2} />
-          </Field>
-          <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-accent" type="submit">{lang === 'tr' ? 'Teklifi tamamla' : 'Complete offer'}</button>
-            <button className="btn btn-ghost" type="button">{lang === 'tr' ? 'Taslak' : 'Save draft'}</button>
-          </div>
-        </form>
-      </div>
+      ))}
     </DashboardLayout>
   );
 }
@@ -243,283 +342,217 @@ export function GiveOffer() {
 export function MyOffers() {
   useReveal();
   const { lang } = useLang();
+  const { data, error, reload } = useLoad(() => offers.list());
+  const [busy, setBusy] = useState('');
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Tekliflerim' : 'My offers'} subtitle={lang === 'tr' ? 'Gönderdiğiniz tüm teklifler.' : 'Every offer you have sent.'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup value="all" onChange={() => {}} options={[
-          { value: 'all', label: lang === 'tr' ? 'Tümü' : 'All' },
-          { value: 'draft', label: 'Draft' }, { value: 'sent', label: 'Sent' }, { value: 'viewed', label: 'Viewed' },
-          { value: 'accepted', label: 'Accepted' }, { value: 'rejected', label: 'Rejected' }, { value: 'expired', label: 'Expired' },
-        ]} />
-      </div>
-      <div className="col gap-3">
-        {OFFERS.map(o => <OfferCard key={o.id} offer={o} accentOnAccepted />)}
-      </div>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Tekliflerim' : 'My offers'} subtitle={lang === 'tr' ? 'Gönderdiğiniz tüm teklifler ve durumları.' : 'Everything you sent, with live status.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (data.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Henüz teklif yok' : 'No offers yet'} body={lang === 'tr' ? 'Açık isteklere teklif göndererek başlayın.' : 'Send your first offer on an open brief.'} cta={lang === 'tr' ? 'İstekleri gör' : 'See open briefs'} to="/studio/give-offer" />
+      ) : (
+        <div className="col gap-3">
+          {data.map(o => (
+            <article key={o.id} className="card card-pad col gap-2">
+              <div className="row between center">
+                <strong>{o.requestTitle}</strong>
+                <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+              </div>
+              <span className="mono text-muted" style={{ fontSize: 11 }}>{o.customerName} · {o.createdAt}{o.appointmentAt ? ` · ${o.appointmentAt}` : ''}</span>
+              <div className="row between center">
+                <span className="display" style={{ fontSize: 20 }}>₺{o.price.toLocaleString()}</span>
+                {o.status === 'accepted' && (
+                  <button
+                    className="btn btn-sm btn-accent"
+                    disabled={busy === o.id}
+                    onClick={async () => { setBusy(o.id); try { await offers.act(o.id, 'complete'); } finally { setBusy(''); reload(); } }}
+                  >
+                    {lang === 'tr' ? 'Tamamlandı işaretle' : 'Mark completed'}
+                  </button>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      ))}
     </DashboardLayout>
   );
 }
 
-/* ---------- Order tracking (artist) ---------- */
+/* ---------- Tracking ---------- */
 export function StudioTracking() {
   useReveal();
   const { lang } = useLang();
-  const statuses: { k: string; label: string; count: number }[] = [
-    { k: 'request',   label: lang === 'tr' ? 'İstek geldi'        : 'Request created',  count: 12 },
-    { k: 'sent',      label: lang === 'tr' ? 'Teklif gönderildi'  : 'Offer sent',       count: 7 },
-    { k: 'accepted',  label: lang === 'tr' ? 'Müşteri kabul etti' : 'Customer accepted', count: 3 },
-    { k: 'booked',    label: lang === 'tr' ? 'Randevu oluştu'    : 'Appointment booked', count: 3 },
-    { k: 'completed', label: lang === 'tr' ? 'Tamamlandı'        : 'Completed',         count: 24 },
-    { k: 'reviewed',  label: lang === 'tr' ? 'Yorum bırakıldı'   : 'Reviewed',          count: 18 },
-    { k: 'cancelled', label: lang === 'tr' ? 'İptal'             : 'Cancelled',         count: 2 },
-  ];
+  const { data, error } = useLoad(() => offers.list());
+  const active = (data ?? []).filter(o => o.status === 'accepted' || o.status === 'completed');
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Sipariş takibi' : 'Order tracking'}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 28 }}>
-        {statuses.map((s, i) => (
-          <div key={s.k} className="card card-pad col gap-2">
-            <span className="mono text-muted">{String(i + 1).padStart(2, '0')} · {s.label}</span>
-            <span className="display" style={{ fontSize: 36, lineHeight: 1, margin: 0 }}>{s.count}</span>
-          </div>
-        ))}
-      </div>
-      <div className="col gap-3">
-        {OFFERS.map(o => <OfferCard key={o.id} offer={o} />)}
-      </div>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'İş takibi' : 'Job tracking'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (active.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Aktif iş yok' : 'No active jobs'} body={lang === 'tr' ? 'Kabul edilen teklifler burada izlenir.' : 'Accepted offers are tracked here.'} />
+      ) : (
+        <div className="col gap-3">
+          {active.map(o => (
+            <article key={o.id} className="card card-pad row between center">
+              <div className="col gap-1">
+                <strong>{o.requestTitle}</strong>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{o.customerName} · ₺{o.price.toLocaleString()}</span>
+              </div>
+              <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+            </article>
+          ))}
+        </div>
+      ))}
     </DashboardLayout>
   );
 }
 
-/* ---------- Calendar ---------- */
+/* ---------- Calendar (accepted jobs by date) ---------- */
 export function StudioCalendar() {
   useReveal();
   const { lang } = useLang();
-  // simple month skeleton
-  const days = Array.from({ length: 35 });
-  const bookedDays = new Set([4, 8, 12, 17, 19, 22, 26]);
-  const todayIdx = 14;
+  const { data, error } = useLoad(() => offers.list());
+  const dated = (data ?? [])
+    .filter(o => o.status === 'accepted' && o.appointmentAt)
+    .sort((a, b) => (a.appointmentAt ?? '').localeCompare(b.appointmentAt ?? ''));
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Randevu takvimi' : 'Appointment calendar'}>
-      <div className="split">
-        <div className="card card-pad">
-          <div className="row between center" style={{ marginBottom: 18 }}>
-            <span className="mono text-muted">{lang === 'tr' ? 'Haziran 2026' : 'June 2026'}</span>
-            <div className="row gap-2">
-              <button className="mono">←</button>
-              <button className="mono">→</button>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (dated.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Planlanmış randevu yok' : 'No scheduled appointments'} body={lang === 'tr' ? 'Tarih içeren kabul edilmiş teklifler burada sıralanır.' : 'Accepted offers with a date line up here.'} />
+      ) : (
+        <div className="col" style={{ border: '1px solid var(--hairline)' }}>
+          {dated.map(o => (
+            <div key={o.id} className="row between center" style={{ padding: 18, borderBottom: '1px solid var(--hairline)' }}>
+              <div className="col gap-1">
+                <strong>{o.requestTitle}</strong>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{o.customerName}</span>
+              </div>
+              <span className="mono">{o.appointmentAt}</span>
             </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 1, background: 'var(--hairline)' }}>
-            {['M','T','W','T','F','S','S'].map(d => <div key={d + Math.random()} className="mono text-muted" style={{ background: 'var(--paper)', padding: 6, textAlign: 'center' }}>{d}</div>)}
-            {days.map((_, i) => {
-              const day = i + 1 - 2;
-              const inMonth = day > 0 && day <= 30;
-              const booked = bookedDays.has(day);
-              const today = i === todayIdx;
-              return (
-                <div key={i} style={{ background: 'var(--paper)', padding: 8, minHeight: 64, position: 'relative', opacity: inMonth ? 1 : 0.3 }}>
-                  <div className="row between center">
-                    <span className="mono" style={{ color: today ? 'var(--accent)' : 'var(--muted)' }}>{inMonth ? day : ''}</span>
-                    {booked && <span style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--accent)' }} />}
-                  </div>
-                  {booked && <span className="mono" style={{ fontSize: 10, color: 'var(--ink)', display: 'block', marginTop: 6 }}>{day === 12 ? '13:00' : day === 22 ? '11:00' : '15:30'}</span>}
-                </div>
-              );
-            })}
-          </div>
+          ))}
         </div>
-        <div className="col">
-          <span className="mono text-muted">{lang === 'tr' ? 'Yaklaşan' : 'Upcoming'}</span>
-          <div className="col gap-3" style={{ marginTop: 12 }}>
-            {APPOINTMENTS.map(a => <AppointmentCard key={a.id} ap={a} />)}
-          </div>
-        </div>
-      </div>
+      ))}
     </DashboardLayout>
   );
 }
 
-/* ---------- Campaigns ---------- */
+/* ---------- Not-yet-built modules — honest empty states ---------- */
 export function StudioCampaigns() {
   useReveal();
   const { lang } = useLang();
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Kampanyalarım' : 'My campaigns'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup value="all" onChange={() => {}} options={[
-          { value: 'all', label: lang === 'tr' ? 'Tümü' : 'All' },
-          { value: 'active', label: lang === 'tr' ? 'Aktif' : 'Active' },
-          { value: 'passive', label: lang === 'tr' ? 'Pasif' : 'Passive' },
-        ]} />
-        <button className="btn btn-sm btn-accent">{lang === 'tr' ? '＋ Kampanya' : '＋ Campaign'}</button>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        {CAMPAIGNS.map(c => <CampaignCard key={c.id} c={c} />)}
-      </div>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Kampanyalar' : 'Campaigns'}>
+      <Empty title={lang === 'tr' ? 'Kampanya modülü yakında' : 'Campaigns are coming soon'} body={lang === 'tr' ? 'İndirim kampanyaları bu sürümde henüz aktif değil.' : 'Discount campaigns are not live in this version yet.'} />
     </DashboardLayout>
   );
 }
 
-/* ---------- My artists ---------- */
 export function StudioArtists() {
   useReveal();
   const { lang } = useLang();
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Sanatçılarım' : 'My artists'} subtitle={lang === 'tr' ? 'Stüdyo bünyesindeki ekip.' : 'The artists working under your studio.'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <span className="mono text-muted">{lang === 'tr' ? 'Karanfil Atölye · 3 sanatçı' : 'Karanfil Atölye · 3 artists'}</span>
-        <button className="btn btn-sm btn-accent">{lang === 'tr' ? '＋ Sanatçı ekle' : '＋ Add artist'}</button>
-      </div>
-      <div className="card">
-        {ARTIST_MEMBERS.map(m => <div key={m.id} style={{ paddingInline: 22 }}><ArtistMemberRow m={m} /></div>)}
-      </div>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Sanatçılarım' : 'My artists'}>
+      <Empty title={lang === 'tr' ? 'Ekip modülü yakında' : 'Team management is coming soon'} body={lang === 'tr' ? 'Stüdyo ekibi yönetimi bu sürümde henüz aktif değil.' : 'Studio team management is not live in this version yet.'} />
     </DashboardLayout>
   );
 }
 
-/* ---------- Materials ---------- */
 export function StudioMaterials() {
   useReveal();
   const { lang } = useLang();
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme malzemeleri' : 'Tattoo materials'} subtitle={lang === 'tr' ? 'Demo amaçlı ürün katalogu.' : 'Sample product catalog (placeholder).'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup value="all" onChange={() => {}} options={[
-          { value: 'all', label: lang === 'tr' ? 'Tümü' : 'All' },
-          { value: 'ink', label: 'Ink' }, { value: 'needle', label: 'Needles' },
-          { value: 'machine', label: 'Machines' }, { value: 'aftercare', label: 'Aftercare' }, { value: 'hygiene', label: 'Hygiene' },
-        ]} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 20 }}>
-        {MATERIALS.map(m => <MaterialCard key={m.id} m={m} />)}
-      </div>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Malzemeler' : 'Materials'}>
+      <Empty title={lang === 'tr' ? 'Malzeme mağazası yakında' : 'The materials shop is coming soon'} body={lang === 'tr' ? 'Malzeme kataloğu bu sürümde henüz aktif değil.' : 'The materials catalog is not live in this version yet.'} />
     </DashboardLayout>
   );
 }
 
-/* ---------- Reviews ---------- */
+/* ---------- Reviews received ---------- */
 export function StudioReviews() {
   useReveal();
   const { lang } = useLang();
+  const { data, error } = useLoad(() => reviews.mine());
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Yorumlar' : 'Reviews'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup value="all" onChange={() => {}} options={[
-          { value: 'all', label: 'All' },
-          { value: '5', label: '5 ★' }, { value: '4', label: '4 ★' }, { value: '3', label: '3 ★' },
-        ]} />
-        <div className="row gap-3">
-          <span className="mono text-muted">{lang === 'tr' ? 'Ortalama' : 'Average'}</span>
-          <span className="display" style={{ fontSize: 24 }}>4.86</span>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Yorumlar' : 'Reviews'} subtitle={lang === 'tr' ? 'Yalnızca tamamlanmış işlerden gelen gerçek yorumlar.' : 'Only real reviews from completed jobs.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (data.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Henüz yorum yok' : 'No reviews yet'} body={lang === 'tr' ? 'İlk tamamlanan işinizden sonra yorumlar burada görünür.' : 'After your first completed job, customer reviews appear here.'} />
+      ) : (
+        <div className="col gap-3">
+          {data.map(r => (
+            <article key={r.id} className="card card-pad col gap-2">
+              <div className="row between center">
+                <strong>{r.customerName}</strong>
+                <span className="mono">{'★'.repeat(r.rating)}</span>
+              </div>
+              <span className="mono text-muted" style={{ fontSize: 11 }}>{r.requestTitle} · {r.createdAt}</span>
+              <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.text}</p>
+            </article>
+          ))}
         </div>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-        {REVIEWS.map(r => <ReviewCard key={r.id} r={r} />)}
-      </div>
+      ))}
     </DashboardLayout>
   );
 }
 
 /* ---------- Messages ---------- */
 export function StudioMessages() {
-  useReveal();
-  const { lang } = useLang();
-  const [activeId, setActiveId] = useState(CONVERSATIONS[0].id);
-  const conv = CONVERSATIONS.find(c => c.id === activeId)!;
-  const msgs = MESSAGES.filter(m => m.conversationId === activeId);
-  return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Mesajlar' : 'Messages'}>
-      <div className="msg-grid" style={{ gap: 0, border: '1px solid var(--hairline)' }}>
-        <div className="col" style={{ borderRight: '1px solid var(--hairline)' }}>
-          <div style={{ padding: 14, borderBottom: '1px solid var(--hairline)' }}><Input placeholder="Search" /></div>
-          {CONVERSATIONS.map(c => (
-            <button key={c.id} onClick={() => setActiveId(c.id)} style={{ display: 'block', width: '100%', textAlign: 'left' }}>
-              <ConversationRow c={c} active={c.id === activeId} />
-            </button>
-          ))}
-        </div>
-        <div className="col">
-          <div className="row between center" style={{ padding: 16, borderBottom: '1px solid var(--hairline)' }}>
-            <div className="row gap-3 center"><AvatarBubble name={conv.with} size={36} /><strong>{conv.with}</strong></div>
-            <button className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Profil' : 'Profile'}</button>
-          </div>
-          <div className="col gap-3" style={{ padding: 18, minHeight: 320 }}>
-            {msgs.map(m => (
-              <div key={m.id} className="row" style={{ justifyContent: m.fromMe ? 'flex-end' : 'flex-start' }}>
-                <div style={{ maxWidth: 420, padding: '10px 14px', border: '1px solid var(--hairline)', background: m.fromMe ? 'var(--ink)' : 'var(--paper-warm)', color: m.fromMe ? 'var(--paper)' : 'var(--ink)' }}>
-                  <span style={{ fontSize: 14 }}>{m.text}</span>
-                  <span className="mono" style={{ display: 'block', marginTop: 6, opacity: 0.6, fontSize: 10 }}>{m.time}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="row gap-2 center" style={{ padding: 14, borderTop: '1px solid var(--hairline)' }}>
-            <Input placeholder={lang === 'tr' ? 'Mesaj yazın…' : 'Write a message…'} />
-            <button className="btn btn-sm btn-primary">{lang === 'tr' ? 'Gönder' : 'Send'}</button>
-          </div>
-        </div>
-      </div>
-    </DashboardLayout>
-  );
+  return <MessagesPage scope="studio" />;
 }
 
-/* ---------- Notifications ---------- */
+/* ---------- Notifications (derived from offer status changes) ---------- */
 export function StudioNotifications() {
   useReveal();
   const { lang } = useLang();
+  const { data, error } = useLoad(() => offers.list());
+  const events = (data ?? []).filter(o => o.status === 'accepted' || o.status === 'rejected').slice(0, 20);
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup value="all" onChange={() => {}} options={[
-          { value: 'all', label: 'All' }, { value: 'offers', label: 'Offers' }, { value: 'msgs', label: 'Messages' },
-          { value: 'appts', label: 'Appointments' }, { value: 'campaign', label: 'Campaigns' }, { value: 'system', label: 'System' },
-        ]} />
-        <button className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Tümünü okundu işaretle' : 'Mark all read'}</button>
-      </div>
-      <div className="col">
-        {NOTIFICATIONS.map(n => <NotificationItem key={n.id} n={n} />)}
-      </div>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (events.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Bildirim yok' : 'Nothing yet'} body={lang === 'tr' ? 'Teklifleriniz yanıtlandıkça burada görünür.' : 'When customers respond to your offers it shows here.'} />
+      ) : (
+        <div className="col" style={{ border: '1px solid var(--hairline)' }}>
+          {events.map(o => (
+            <div key={o.id} className="row between center" style={{ padding: 16, borderBottom: '1px solid var(--hairline)' }}>
+              <span style={{ fontSize: 14 }}>{o.customerName} — {o.requestTitle}</span>
+              <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+            </div>
+          ))}
+        </div>
+      ))}
     </DashboardLayout>
   );
 }
 
-/* ---------- Statistics ---------- */
+/* ---------- Stats (computed from real activity only) ---------- */
 export function StudioStats() {
   useReveal();
   const { lang } = useLang();
+  const { data, error } = useLoad(() => dashboard.get() as Promise<ArtistDashboard>);
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'İstatistik' : 'Statistics'} subtitle={lang === 'tr' ? 'Son 30 günün performansı.' : 'Performance over the past 30 days.'}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
-        <StatsCard label={lang === 'tr' ? 'Profil görüntüleme' : 'Profile views'}    value="12,480" delta="+8%" />
-        <StatsCard label={lang === 'tr' ? 'Dövme görüntüleme' : 'Tattoo views'}     value="38,602" delta="+22%" />
-        <StatsCard label={lang === 'tr' ? 'Beğeni' : 'Likes'}                       value="4,210" delta="+11%" />
-        <StatsCard label={lang === 'tr' ? 'Takipçi' : 'Followers'}                 value="6,734" delta="+124" />
-        <StatsCard label={lang === 'tr' ? 'Gönderilen teklif' : 'Sent offers'}     value="118" />
-        <StatsCard label={lang === 'tr' ? 'Kabul edilen' : 'Accepted'}             value="45" delta="38%" />
-        <StatsCard label={lang === 'tr' ? 'Tamamlanan iş' : 'Completed orders'}    value="24" />
-        <StatsCard label={lang === 'tr' ? 'Çevrim oranı' : 'Conversion rate'}      value="6.2%" delta="+0.8 pts" />
-      </div>
-      <div className="card card-pad" style={{ marginTop: 32 }}>
-        <span className="mono text-muted">{lang === 'tr' ? 'Haftalık görüntüleme' : 'Views per week'}</span>
-        <ChartBars />
-      </div>
-    </DashboardLayout>
-  );
-}
-
-function ChartBars() {
-  const data = [42, 58, 64, 71, 65, 88, 102, 96, 121, 134, 128, 142];
-  const max = Math.max(...data);
-  return (
-    <div className="row" style={{ alignItems: 'flex-end', gap: 8, height: 200, marginTop: 18 }}>
-      {data.map((v, i) => (
-        <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-          <span style={{ flex: 1, width: '100%', display: 'flex', alignItems: 'flex-end' }}>
-            <span style={{ display: 'block', width: '100%', height: `${(v / max) * 100}%`, background: i === data.length - 1 ? 'var(--accent)' : 'var(--ink)', opacity: i === data.length - 1 ? 1 : 0.78 }} />
-          </span>
-          <span className="mono text-muted" style={{ fontSize: 9 }}>W{i + 1}</span>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'İstatistikler' : 'Statistics'} subtitle={lang === 'tr' ? 'Tümü gerçek aktiviteden hesaplanır — veri yoksa sıfırdır.' : 'All computed from real activity — zero when there is none.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+          <StatsCard label={lang === 'tr' ? 'Gönderilen teklif' : 'Offers sent'} value={String(data.stats.offersSent)} />
+          <StatsCard label={lang === 'tr' ? 'Bekleyen teklif' : 'Pending offers'} value={String(data.stats.offersPending)} />
+          <StatsCard label={lang === 'tr' ? 'Rezerve iş' : 'Booked jobs'} value={String(data.stats.jobsBooked)} />
+          <StatsCard label={lang === 'tr' ? 'Tamamlanan iş' : 'Completed jobs'} value={String(data.stats.jobsCompleted)} />
+          <StatsCard label={lang === 'tr' ? 'Kazanç (tamamlanan)' : 'Earnings (completed)'} value={`₺${data.stats.earnings.toLocaleString()}`} />
+          <StatsCard label={lang === 'tr' ? 'Ortalama puan' : 'Average rating'} value={data.stats.avgRating != null ? `★ ${data.stats.avgRating}` : '—'} />
+          <StatsCard label={lang === 'tr' ? 'Yorum sayısı' : 'Reviews'} value={String(data.stats.reviewCount)} />
+          <StatsCard label={lang === 'tr' ? 'Portföy (yayında)' : 'Portfolio (live)'} value={String(data.stats.portfolioApproved)} />
+          <StatsCard label={lang === 'tr' ? 'Portföy (incelemede)' : 'Portfolio (in review)'} value={String(data.stats.portfolioPending)} />
         </div>
-      ))}
-    </div>
+      )}
+    </DashboardLayout>
   );
 }
 
@@ -527,62 +560,36 @@ function ChartBars() {
 export function StudioProfile() {
   useReveal();
   const { lang } = useLang();
-  const artist = ARTISTS[0];
+  const { user } = useAuth();
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Profil' : 'Profile'}>
-      <ProfileCard name={artist.name} role={lang === 'tr' ? 'Sanatçı · Karanfil Atölye' : 'Artist · Karanfil Atölye'} city={artist.city} rating={artist.rating} followers={artist.followers} />
-
-      <div className="split" style={{ marginTop: 32 }}>
-        <form className="col" onSubmit={(e) => e.preventDefault()}>
-          <Field label={lang === 'tr' ? 'Profil fotoğrafı' : 'Profile photo'}>
-            <UploadImage label={lang === 'tr' ? 'Görsel seç' : 'Select image'} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Profil adı' : 'Profile name'}><Input defaultValue={artist.name} /></Field>
-          <Field label={lang === 'tr' ? 'Kullanıcı adı' : 'Handle'}><Input defaultValue={artist.handle} /></Field>
-          <Field label={lang === 'tr' ? 'Biyografi' : 'Bio'}><Textarea rows={3} defaultValue={artist.bio} /></Field>
-          <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
-            <Select options={CITIES.map(c => ({ value: c, label: c }))} defaultValue={artist.city} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Stiller' : 'Styles'}>
-            <ChoiceGroup value={artist.styles[0]} onChange={() => {}} options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Başlangıç fiyatı' : 'Minimum price'}><Input type="number" defaultValue={artist.minPrice} /></Field>
-          <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-primary">{lang === 'tr' ? 'Kaydet' : 'Save'}</button>
-            <button className="btn btn-ghost" type="button">{lang === 'tr' ? 'Vazgeç' : 'Discard'}</button>
-          </div>
-        </form>
-
-        <aside className="col gap-3">
-          <span className="mono text-muted">{lang === 'tr' ? 'Hesap' : 'Account'}</span>
-          {[
-            ['My information', 'Bilgilerim'],
-            ['Security & privacy', 'Güvenlik & gizlilik'],
-            ['Connected accounts', 'Bağlı hesaplar'],
-            ['Order history', 'Sipariş geçmişi'],
-            ['Reviews', 'Yorumlar'],
-            ['Customer service', 'Müşteri hizmetleri'],
-            ['FAQ', 'SSS'],
-            ['About', 'Hakkında'],
-            ['Contact', 'İletişim'],
-          ].map(([en, tr]) => (
-            <div key={en} className="row between" style={{ padding: '14px 0', borderBottom: '1px solid var(--hairline)' }}>
-              <span>{lang === 'tr' ? tr : en}</span>
-              <span className="mono text-muted">→</span>
-            </div>
-          ))}
-        </aside>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Profilim' : 'My profile'}>
+      <div className="card card-pad col gap-3" style={{ maxWidth: 520 }}>
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Ad' : 'Name'}</span>
+          <strong>{user?.name}</strong>
+        </div>
+        <div className="row between center">
+          <span className="mono text-muted">Email</span>
+          <span>{user?.email}</span>
+        </div>
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Rol' : 'Role'}</span>
+          <span>{user?.role}</span>
+        </div>
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Şehir' : 'City'}</span>
+          <span>{user?.city ?? '—'}</span>
+        </div>
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Stiller' : 'Styles'}</span>
+          <span>{(user?.styles ?? []).join(' · ') || '—'}</span>
+        </div>
+        {user?.bio && <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{user.bio}</p>}
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Üyelik' : 'Member since'}</span>
+          <span>{user?.createdAt}</span>
+        </div>
       </div>
     </DashboardLayout>
-  );
-}
-
-/* helpers */
-function SectionTitle({ num, label, action }: { num: string; label: string; action?: React.ReactNode }) {
-  return (
-    <div className="row between center" style={{ margin: '36px 0 16px', borderBottom: '1px solid var(--hairline)', paddingBottom: 10 }}>
-      <span className="mono text-muted">{num} · {label}</span>
-      {action}
-    </div>
   );
 }

@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Logo } from './Logo';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useLang } from '../i18n/LangContext';
+import { useAuth, isArtistRole } from '../auth/AuthContext';
 import { IndexMenu } from './IndexMenu';
 import { Icon } from './Icon';
 
 const DESKTOP_BP = 940; // breakpoint above which the full nav is shown
 
 export function Header({ tone = 'light', overHero = false }: { tone?: 'light' | 'dark'; overHero?: boolean }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const dashboardPath = isArtistRole(user?.role) ? '/studio' : '/dashboard';
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => typeof window === 'undefined' ? true : window.innerWidth >= DESKTOP_BP);
@@ -67,8 +71,19 @@ export function Header({ tone = 'light', overHero = false }: { tone?: 'light' | 
               <NavLink to="/categories">{t('nav.categories')}</NavLink>
               <span style={{ width: 1, height: 18, background: isDark ? 'var(--night-hairline)' : 'var(--hairline-strong)' }} />
               <LanguageSwitcher tone={isDark ? 'dark' : 'light'} />
-              <Link to="/login" className="mono" style={{ color: ink }}>{t('nav.login')}</Link>
-              <Link to="/register" className={`btn btn-sm ${isDark ? 'btn-glass' : ''}`}>{t('nav.signup')}</Link>
+              {user ? (
+                <>
+                  <Link to={dashboardPath} className={`btn btn-sm ${isDark ? 'btn-glass' : ''}`}>{lang === 'tr' ? 'Panelim' : 'Dashboard'}</Link>
+                  <button className="mono" style={{ color: ink }} onClick={async () => { await logout(); navigate('/'); }}>
+                    {lang === 'tr' ? 'Çıkış' : 'Log out'}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link to="/login" className="mono" style={{ color: ink }}>{t('nav.login')}</Link>
+                  <Link to="/register" className={`btn btn-sm ${isDark ? 'btn-glass' : ''}`}>{t('nav.signup')}</Link>
+                </>
+              )}
               <button
                 className="mono row center gap-2"
                 aria-label="Open index"

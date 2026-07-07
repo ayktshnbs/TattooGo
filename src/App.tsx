@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { LangProvider } from './i18n/LangContext';
+import { AuthProvider } from './auth/AuthContext';
+import { RequireCustomer, RequireArtist } from './auth/Guard';
 
 import { Landing } from './pages/Landing';
 import { Moderation } from './pages/Moderation';
@@ -14,59 +16,64 @@ function ScrollToTop() {
   return null;
 }
 
+const C = (el: React.ReactNode) => <RequireCustomer>{el}</RequireCustomer>;
+const A = (el: React.ReactNode) => <RequireArtist>{el}</RequireArtist>;
+
 export default function App() {
   return (
     <LangProvider>
-      <BrowserRouter>
-        <ScrollToTop />
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/moderation" element={<Moderation />} />
+      <AuthProvider>
+        <BrowserRouter>
+          <ScrollToTop />
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/moderation" element={<Moderation />} />
 
-          <Route path="/how-it-works" element={<HowItWorks />} />
-          <Route path="/artists" element={<BrowseArtists />} />
-          <Route path="/designs" element={<BrowseDesigns />} />
-          <Route path="/categories" element={<Categories />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/faq" element={<FAQ />} />
-          <Route path="/about" element={<About />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/terms" element={<Terms />} />
+            <Route path="/how-it-works" element={<HowItWorks />} />
+            <Route path="/artists" element={<BrowseArtists />} />
+            <Route path="/designs" element={<BrowseDesigns />} />
+            <Route path="/categories" element={<Categories />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route path="/faq" element={<FAQ />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/terms" element={<Terms />} />
 
-          {/* Customer dashboard */}
-          <Route path="/dashboard" element={<CustomerHome />} />
-          <Route path="/dashboard/create-request" element={<CreateRequest />} />
-          <Route path="/dashboard/requests" element={<MyRequests />} />
-          <Route path="/dashboard/offers" element={<OffersReceived />} />
-          <Route path="/dashboard/messages" element={<CustomerMessages />} />
-          <Route path="/dashboard/notifications" element={<CustomerNotifications />} />
-          <Route path="/dashboard/favorites" element={<CustomerFavorites />} />
-          <Route path="/dashboard/appointments" element={<CustomerAppointments />} />
-          <Route path="/dashboard/tracking" element={<CustomerTracking />} />
-          <Route path="/dashboard/reviews" element={<CustomerReviews />} />
-          <Route path="/dashboard/profile" element={<CustomerProfile />} />
+            {/* Customer dashboard — customer role only */}
+            <Route path="/dashboard" element={C(<CustomerHome />)} />
+            <Route path="/dashboard/create-request" element={C(<CreateRequest />)} />
+            <Route path="/dashboard/requests" element={C(<MyRequests />)} />
+            <Route path="/dashboard/offers" element={C(<OffersReceived />)} />
+            <Route path="/dashboard/messages" element={C(<CustomerMessages />)} />
+            <Route path="/dashboard/notifications" element={C(<CustomerNotifications />)} />
+            <Route path="/dashboard/favorites" element={C(<CustomerFavorites />)} />
+            <Route path="/dashboard/appointments" element={C(<CustomerAppointments />)} />
+            <Route path="/dashboard/tracking" element={C(<CustomerTracking />)} />
+            <Route path="/dashboard/reviews" element={C(<CustomerReviews />)} />
+            <Route path="/dashboard/profile" element={C(<CustomerProfile />)} />
 
-          {/* Studio / artist dashboard */}
-          <Route path="/studio" element={<StudioHome />} />
-          <Route path="/studio/tattoos" element={<MyTattoos />} />
-          <Route path="/studio/add-tattoo" element={<AddTattoo />} />
-          <Route path="/studio/give-offer" element={<GiveOffer />} />
-          <Route path="/studio/offers" element={<MyOffers />} />
-          <Route path="/studio/tracking" element={<StudioTracking />} />
-          <Route path="/studio/calendar" element={<StudioCalendar />} />
-          <Route path="/studio/campaigns" element={<StudioCampaigns />} />
-          <Route path="/studio/artists" element={<StudioArtists />} />
-          <Route path="/studio/materials" element={<StudioMaterials />} />
-          <Route path="/studio/reviews" element={<StudioReviews />} />
-          <Route path="/studio/messages" element={<StudioMessages />} />
-          <Route path="/studio/notifications" element={<StudioNotifications />} />
-          <Route path="/studio/stats" element={<StudioStats />} />
-          <Route path="/studio/profile" element={<StudioProfile />} />
+            {/* Studio / artist dashboard — artist role only */}
+            <Route path="/studio" element={A(<StudioHome />)} />
+            <Route path="/studio/tattoos" element={A(<MyTattoos />)} />
+            <Route path="/studio/add-tattoo" element={A(<AddTattoo />)} />
+            <Route path="/studio/give-offer" element={A(<GiveOffer />)} />
+            <Route path="/studio/offers" element={A(<MyOffers />)} />
+            <Route path="/studio/tracking" element={A(<StudioTracking />)} />
+            <Route path="/studio/calendar" element={A(<StudioCalendar />)} />
+            <Route path="/studio/campaigns" element={A(<StudioCampaigns />)} />
+            <Route path="/studio/artists" element={A(<StudioArtists />)} />
+            <Route path="/studio/materials" element={A(<StudioMaterials />)} />
+            <Route path="/studio/reviews" element={A(<StudioReviews />)} />
+            <Route path="/studio/messages" element={A(<StudioMessages />)} />
+            <Route path="/studio/notifications" element={A(<StudioNotifications />)} />
+            <Route path="/studio/stats" element={A(<StudioStats />)} />
+            <Route path="/studio/profile" element={A(<StudioProfile />)} />
 
-          <Route path="*" element={<Landing />} />
-        </Routes>
-      </BrowserRouter>
+            <Route path="*" element={<Landing />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </LangProvider>
   );
 }

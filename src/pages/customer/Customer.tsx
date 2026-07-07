@@ -1,129 +1,246 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { Field, Input, Textarea, Select, ChoiceGroup, UploadImage } from '../../components/Form';
-import { OfferCard, RequestCard, StatsCard, NotificationItem, ConversationRow, AppointmentCard, TattooCard, ArtistCard, ReviewCard, ProfileCard } from '../../components/Cards';
+import { StatsCard } from '../../components/Cards';
+import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useLang } from '../../i18n/LangContext';
+import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
-import { OFFERS, REQUESTS, NOTIFICATIONS, CONVERSATIONS, MESSAGES, APPOINTMENTS, DESIGNS, ARTISTS, REVIEWS, STYLES, CITIES } from '../../data/mock';
-import { AvatarBubble } from '../../components/Visual';
+import { STYLES, CITIES } from '../../data/mock';
+import { fileToUpload } from '../../data/uploads';
+import {
+  dashboard, requests, offers, messages, reviews,
+  type ApiRequest, type ApiOffer, type ApiThread, type ApiMessage, type ApiReview, type CustomerDashboard,
+} from '../../lib/api';
 
-/* ---------- Customer Home ---------- */
+/**
+ * Customer dashboard — every page reads only the signed-in customer's real
+ * rows from the API. New accounts see honest empty states, never samples.
+ */
+
+function useLoad<T>(fn: () => Promise<T>) {
+  const [data, setData] = useState<T | null>(null);
+  const [error, setError] = useState('');
+  const load = useCallback(() => {
+    fn().then(d => { setData(d); setError(''); }).catch(e => setError(e instanceof Error ? e.message : 'failed'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  return { data, error, reload: load };
+}
+
+function SectionTitle({ num, label, action }: { num: string; label: string; action?: React.ReactNode }) {
+  return (
+    <div className="row between center" style={{ margin: '40px 0 16px', borderBottom: '1px solid var(--hairline)', paddingBottom: 10 }}>
+      <span className="mono text-muted">{num} · {label}</span>
+      {action}
+    </div>
+  );
+}
+
+const STATUS_LABEL: Record<string, { en: string; tr: string }> = {
+  open: { en: 'Open', tr: 'Açık' },
+  booked: { en: 'Booked', tr: 'Rezerve' },
+  completed: { en: 'Completed', tr: 'Tamamlandı' },
+  cancelled: { en: 'Cancelled', tr: 'İptal' },
+  sent: { en: 'Pending', tr: 'Bekliyor' },
+  accepted: { en: 'Accepted', tr: 'Kabul edildi' },
+  rejected: { en: 'Rejected', tr: 'Reddedildi' },
+};
+
+function RequestRowCard({ r, lang, onCancel }: { r: ApiRequest; lang: string; onCancel?: (id: string) => void }) {
+  return (
+    <article className="card card-pad col gap-2">
+      <div className="row between center">
+        <strong>{r.title}</strong>
+        <span className="tag tag-soft">{STATUS_LABEL[r.status]?.[lang as 'en' | 'tr'] ?? r.status}</span>
+      </div>
+      <span className="mono text-muted" style={{ fontSize: 11 }}>
+        {r.style} · {r.placement} · {r.size}{r.city ? ` · ${r.city}` : ''} · {r.createdAt}
+      </span>
+      <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.description.slice(0, 160)}{r.description.length > 160 ? '…' : ''}</p>
+      <div className="row between center">
+        <span className="mono">{r.offerCount} {lang === 'tr' ? 'teklif' : 'offers'}</span>
+        {r.status === 'open' && onCancel && (
+          <button className="mono text-muted" onClick={() => onCancel(r.id)}>{lang === 'tr' ? 'İptal et' : 'Cancel'}</button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function OfferRowCard({ o, lang, onAct, busy }: { o: ApiOffer; lang: string; onAct?: (id: string, a: 'accept' | 'reject') => void; busy?: string }) {
+  return (
+    <article className="card card-pad col gap-2">
+      <div className="row between center">
+        <strong>{o.artistName}</strong>
+        <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+      </div>
+      <span className="mono text-muted" style={{ fontSize: 11 }}>{o.requestTitle} · {o.createdAt}</span>
+      <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{o.message}</p>
+      <div className="row between center">
+        <span className="display" style={{ fontSize: 22 }}>₺{o.price.toLocaleString()}</span>
+        {o.status === 'sent' && onAct && (
+          <div className="row gap-2">
+            <button className="btn btn-sm btn-accent" disabled={busy === o.id} onClick={() => onAct(o.id, 'accept')}>{lang === 'tr' ? 'Kabul et' : 'Accept'}</button>
+            <button className="btn btn-sm" disabled={busy === o.id} onClick={() => onAct(o.id, 'reject')}>{lang === 'tr' ? 'Reddet' : 'Reject'}</button>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+/* ---------- Home ---------- */
 export function CustomerHome() {
   useReveal();
   const { lang, t } = useLang();
+  const { user } = useAuth();
+  const { data, error } = useLoad(() => dashboard.get() as Promise<CustomerDashboard>);
   return (
     <DashboardLayout
       scope="customer"
-      title={lang === 'tr' ? 'Tekrar hoş geldin, Naz.' : 'Welcome back, Naz.'}
-      subtitle={lang === 'tr' ? 'Aktif istekleriniz, son teklifler ve yaklaşan randevular.' : 'Your active requests, latest offers and upcoming appointments.'}
+      title={lang === 'tr' ? `Hoş geldin, ${user?.name ?? ''}.` : `Welcome, ${user?.name ?? ''}.`}
+      subtitle={lang === 'tr' ? 'İstekleriniz, teklifler ve randevular — yalnızca gerçek veriler.' : 'Your requests, offers and appointments — real data only.'}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 36 }}>
-        <StatsCard label={lang === 'tr' ? 'Aktif istek' : 'Active requests'} value="3" delta="+1 this week" />
-        <StatsCard label={lang === 'tr' ? 'Açık teklif' : 'Open offers'} value="7" delta="+4 today" />
-        <StatsCard label={lang === 'tr' ? 'Yaklaşan' : 'Upcoming'} value="2" />
-        <StatsCard label={lang === 'tr' ? 'Tamamlanan' : 'Completed'} value="5" />
-      </div>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 36 }}>
+            <StatsCard label={lang === 'tr' ? 'Aktif istek' : 'Active requests'} value={String(data.stats.activeRequests)} />
+            <StatsCard label={lang === 'tr' ? 'Açık teklif' : 'Open offers'} value={String(data.stats.openOffers)} />
+            <StatsCard label={lang === 'tr' ? 'Yaklaşan' : 'Upcoming'} value={String(data.stats.upcoming)} />
+            <StatsCard label={lang === 'tr' ? 'Tamamlanan' : 'Completed'} value={String(data.stats.completed)} />
+          </div>
 
-      <SectionTitle num="A1" label={lang === 'tr' ? 'İsteklerim' : 'My requests'} action={<Link to="/dashboard/requests" className="mono">{t('common.viewAll')} →</Link>} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-        {REQUESTS.slice(0, 2).map(r => <RequestCard key={r.id} request={r} />)}
-      </div>
+          <SectionTitle num="A1" label={lang === 'tr' ? 'İsteklerim' : 'My requests'} action={<Link to="/dashboard/requests" className="mono">{t('common.viewAll')} →</Link>} />
+          {data.recentRequests.length === 0 ? (
+            <Empty
+              title={lang === 'tr' ? 'Henüz istek yok' : 'No requests yet'}
+              body={lang === 'tr' ? 'İlk dövme isteğinizi oluşturun; sanatçılar teklif göndersin.' : 'Create your first tattoo request and let artists send offers.'}
+              cta={lang === 'tr' ? 'İstek oluştur' : 'Create a request'}
+              to="/dashboard/create-request"
+            />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+              {data.recentRequests.slice(0, 2).map(r => <RequestRowCard key={r.id} r={r} lang={lang} />)}
+            </div>
+          )}
 
-      <SectionTitle num="A2" label={lang === 'tr' ? 'Son teklifler' : 'Latest offers'} action={<Link to="/dashboard/offers" className="mono">{t('common.viewAll')} →</Link>} />
-      <div className="col gap-3">
-        {OFFERS.slice(0, 3).map(o => <OfferCard key={o.id} offer={o} />)}
-      </div>
-
-      <SectionTitle num="A3" label={lang === 'tr' ? 'Yaklaşan randevular' : 'Upcoming appointments'} action={<Link to="/dashboard/appointments" className="mono">{t('common.viewAll')} →</Link>} />
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        {APPOINTMENTS.filter(a => a.status !== 'completed').map(a => <AppointmentCard key={a.id} ap={a} />)}
-      </div>
-
+          <SectionTitle num="A2" label={lang === 'tr' ? 'Son teklifler' : 'Latest offers'} action={<Link to="/dashboard/offers" className="mono">{t('common.viewAll')} →</Link>} />
+          {data.recentOffers.length === 0 ? (
+            <Empty title={lang === 'tr' ? 'Henüz teklif yok' : 'No offers yet'} body={lang === 'tr' ? 'İsteğiniz yayına girince teklifler burada listelenir.' : 'Offers appear here once artists respond to your requests.'} />
+          ) : (
+            <div className="col gap-3">
+              {data.recentOffers.slice(0, 3).map(o => <OfferRowCard key={o.id} o={o} lang={lang} />)}
+            </div>
+          )}
+        </>
+      )}
     </DashboardLayout>
   );
 }
 
 /* ---------- Create request ---------- */
+const PLACEMENTS = ['arm', 'forearm', 'shoulder', 'chest', 'back', 'leg', 'thigh', 'ankle', 'hand', 'neck', 'ribs'];
+const SIZES = ['xs', 'sm', 'md', 'lg', 'xl'];
+const COLORS = ['black', 'shaded', 'color'];
+
 export function CreateRequest() {
   useReveal();
-  const { lang, t } = useLang();
-  const [style, setStyle] = useState<string>('fine-line');
-  const [size, setSize] = useState<string>('md');
-  const [color, setColor] = useState<string>('black');
-  const [placement, setPlacement] = useState<string>('forearm');
+  const { lang } = useLang();
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [style, setStyle] = useState<string>(STYLES[0].key);
+  const [placement, setPlacement] = useState('forearm');
+  const [size, setSize] = useState('md');
+  const [color, setColor] = useState('black');
+  const [city, setCity] = useState(CITIES[0]);
+  const [budgetMin, setBudgetMin] = useState('');
+  const [budgetMax, setBudgetMax] = useState('');
+  const [image, setImage] = useState<{ url: string; ratio: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
+  const ok = title.trim() && description.trim() && !busy;
   return (
-    <DashboardLayout
-      scope="customer"
-      title={lang === 'tr' ? 'Dövme isteği oluştur' : 'Create tattoo request'}
-      subtitle={lang === 'tr' ? 'Fikrinizi paylaşın. Onaylı sanatçılar size özel teklif gönderir.' : 'Describe your idea. Verified artists send tailored offers.'}
-    >
-      <div className="split">
-        <form className="col" onSubmit={(e) => e.preventDefault()}>
-          <Field label={lang === 'tr' ? '1 · Dövme tanımı' : '1 · Tattoo description'} hint={lang === 'tr' ? 'En az 2 cümle yazın' : 'At least 2 sentences'}>
-            <Textarea rows={4} placeholder={lang === 'tr' ? 'Aklınızdakini anlatın…' : 'Describe what you have in mind…'} />
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'İstek oluştur' : 'Create a request'} subtitle={lang === 'tr' ? 'Fikrinizi anlatın; onaylı sanatçılar teklif göndersin.' : 'Describe the idea; verified artists reply with offers.'}>
+      {done && (
+        <div className="card card-pad" style={{ marginBottom: 20, borderColor: 'var(--ink)' }}>
+          <span className="mono">✓ {lang === 'tr' ? 'İsteğiniz yayında — sanatçılar artık görebilir.' : 'Your request is live — artists can now see it.'}</span>
+          {' '}<Link to="/dashboard/requests" className="mono" style={{ textDecoration: 'underline' }}>{lang === 'tr' ? 'İsteklerim' : 'My requests'}</Link>
+        </div>
+      )}
+      {error && <div style={{ marginBottom: 20 }}><ErrorNote message={error} /></div>}
+      <form
+        className="col gap-4"
+        style={{ maxWidth: 640 }}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!ok) return;
+          setBusy(true); setError('');
+          try {
+            await requests.create({
+              title: title.trim(), description: description.trim(), style, placement, size, color, city,
+              budgetMin: budgetMin ? Number(budgetMin) : undefined,
+              budgetMax: budgetMax ? Number(budgetMax) : undefined,
+              imageData: image?.url,
+            });
+            setDone(true);
+            setTitle(''); setDescription(''); setImage(null); setBudgetMin(''); setBudgetMax('');
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'failed');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Field label={lang === 'tr' ? 'Başlık' : 'Title'}>
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={lang === 'tr' ? 'Kol içi çizgisel çiçek' : 'Fine-line florals on the forearm'} required />
+        </Field>
+        <Field label={lang === 'tr' ? 'Fikriniz' : 'Describe your idea'}>
+          <Textarea rows={4} value={description} onChange={(e) => setDescription(e.target.value)} required />
+        </Field>
+        <Field label={lang === 'tr' ? 'Stil' : 'Style'}>
+          <ChoiceGroup value={style} onChange={setStyle} options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} />
+        </Field>
+        <div className="row gap-3 wrap">
+          <Field label={lang === 'tr' ? 'Bölge' : 'Placement'}>
+            <Select value={placement} onChange={(e) => setPlacement(e.target.value)} options={PLACEMENTS.map(p => ({ value: p, label: p }))} />
           </Field>
-
-          <Field label={lang === 'tr' ? '2 · Stil' : '2 · Style'}>
-            <ChoiceGroup value={style} onChange={setStyle} options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} />
+          <Field label={lang === 'tr' ? 'Boyut' : 'Size'}>
+            <Select value={size} onChange={(e) => setSize(e.target.value)} options={SIZES.map(s => ({ value: s, label: s.toUpperCase() }))} />
           </Field>
-
-          <Field label={lang === 'tr' ? '3 · Yerleşim' : '3 · Body placement'}>
-            <ChoiceGroup value={placement} onChange={setPlacement} options={['arm','forearm','shoulder','chest','back','leg','thigh','ankle','hand','neck','ribs'].map(p => ({ value: p, label: p }))} />
+          <Field label={lang === 'tr' ? 'Renk' : 'Color'}>
+            <Select value={color} onChange={(e) => setColor(e.target.value)} options={COLORS.map(c => ({ value: c, label: c }))} />
           </Field>
-
-          <Field label={lang === 'tr' ? '4 · Boyut' : '4 · Size'}>
-            <ChoiceGroup value={size} onChange={setSize} options={['xs','sm','md','lg','xl'].map(s => ({ value: s, label: s.toUpperCase() }))} />
+          <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
+            <Select value={city} onChange={(e) => setCity(e.target.value)} options={CITIES.map(c => ({ value: c, label: c }))} />
           </Field>
-
-          <Field label={lang === 'tr' ? '5 · Renk tercihi' : '5 · Color preference'}>
-            <ChoiceGroup value={color} onChange={setColor} options={[
-              { value: 'black', label: lang === 'tr' ? 'Siyah' : 'Black' },
-              { value: 'shaded', label: lang === 'tr' ? 'Gölgeli' : 'Shaded' },
-              { value: 'color', label: lang === 'tr' ? 'Renkli' : 'Color' },
-            ]} />
+        </div>
+        <div className="row gap-3 wrap">
+          <Field label={lang === 'tr' ? 'Bütçe (min ₺)' : 'Budget (min ₺)'}>
+            <Input type="number" min={0} value={budgetMin} onChange={(e) => setBudgetMin(e.target.value)} />
           </Field>
-
-          <Field label={lang === 'tr' ? '6 · Referanslar' : '6 · Reference images'}>
-            <UploadImage label={t('common.uploadImage')} />
+          <Field label={lang === 'tr' ? 'Bütçe (max ₺)' : 'Budget (max ₺)'}>
+            <Input type="number" min={0} value={budgetMax} onChange={(e) => setBudgetMax(e.target.value)} />
           </Field>
-
-          <Field label={lang === 'tr' ? '7 · Şehir' : '7 · City'}>
-            <Select options={CITIES.map(c => ({ value: c, label: c }))} />
-          </Field>
-
-          <div className="row gap-3">
-            <Field label={lang === 'tr' ? '8 · Bütçe min' : '8 · Budget min'}><Input type="number" placeholder="₺2,500" /></Field>
-            <Field label={lang === 'tr' ? 'Bütçe max' : 'Budget max'}><Input type="number" placeholder="₺6,000" /></Field>
-          </div>
-
-          <Field label={lang === 'tr' ? '9 · Tercih edilen tarih' : '9 · Preferred date'}><Input type="date" /></Field>
-
-          <Field label={lang === 'tr' ? '10 · Gizlilik' : '10 · Privacy'}>
-            <label className="row gap-2 center"><input type="radio" name="priv" defaultChecked /> {lang === 'tr' ? 'Sanatçılar görsün' : 'Visible to artists'}</label>
-            <label className="row gap-2 center"><input type="radio" name="priv" /> {lang === 'tr' ? 'Sadece davet ettiklerim görsün' : 'Only invited artists'}</label>
-          </Field>
-
-          <div className="row gap-3" style={{ marginTop: 18 }}>
-            <button className="btn btn-accent" type="submit">{lang === 'tr' ? 'İsteği gönder' : 'Submit request'}</button>
-            <button className="btn btn-ghost" type="button">{lang === 'tr' ? 'Taslak olarak kaydet' : 'Save as draft'}</button>
-          </div>
-        </form>
-
-        <aside className="card card-pad col gap-4" style={{ position: 'sticky', top: 96, alignSelf: 'start' }}>
-          <span className="mono text-muted">{lang === 'tr' ? 'Önizleme' : 'Preview'}</span>
-          <h3 className="display" style={{ fontSize: 28, margin: 0 }}>{style.replace('-', ' ')} · {placement} · {size.toUpperCase()}</h3>
-          <p className="text-muted" style={{ margin: 0 }}>
-            {lang === 'tr'
-              ? 'Brief’iniz onaylı sanatçılara açık teklif olarak yayınlanacak.'
-              : 'Your brief will be opened to verified artists as a public request.'}
-          </p>
-          <hr className="hr" />
-          <div className="row between"><span className="mono text-muted">{lang === 'tr' ? 'Beklenen teklif' : 'Expected offers'}</span><span className="mono">4–8</span></div>
-          <div className="row between"><span className="mono text-muted">{lang === 'tr' ? 'İlk yanıt' : 'First reply'}</span><span className="mono">~ 38 min</span></div>
-          <div className="row between"><span className="mono text-muted">{lang === 'tr' ? 'Olgunlaşma' : 'Brief lifetime'}</span><span className="mono">7 days</span></div>
-        </aside>
-      </div>
+        </div>
+        <Field label={lang === 'tr' ? 'Referans görsel (opsiyonel)' : 'Reference image (optional)'}>
+          <UploadImage
+            label={lang === 'tr' ? 'Görsel yükle' : 'Upload image'}
+            preview={image?.url}
+            onImage={(url, ratio) => setImage({ url, ratio })}
+          />
+        </Field>
+        <div className="row gap-3" style={{ marginTop: 8 }}>
+          <button className="btn btn-primary" type="submit" disabled={!ok}>
+            {busy ? (lang === 'tr' ? 'Gönderiliyor…' : 'Publishing…') : (lang === 'tr' ? 'İsteği yayınla' : 'Publish request')}
+          </button>
+        </div>
+      </form>
     </DashboardLayout>
   );
 }
@@ -132,19 +249,25 @@ export function CreateRequest() {
 export function MyRequests() {
   useReveal();
   const { lang } = useLang();
+  const { data, error, reload } = useLoad(() => requests.list());
   return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'İsteklerim' : 'My requests'} subtitle={lang === 'tr' ? 'Tüm brief’leriniz ve durumları.' : 'All your briefs and their status.'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup
-          value="all"
-          onChange={() => {}}
-          options={[{value:'all',label: lang==='tr'?'Tümü':'All'},{value:'open',label:'Open'},{value:'reviewing',label:'Reviewing'},{value:'booked',label:'Booked'},{value:'completed',label:'Completed'}]}
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'İsteklerim' : 'My requests'} subtitle={lang === 'tr' ? 'Oluşturduğunuz tüm dövme istekleri.' : 'Every request you have created.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (data.length === 0 ? (
+        <Empty
+          title={lang === 'tr' ? 'Henüz istek yok' : 'No requests yet'}
+          body={lang === 'tr' ? 'İlk isteğinizi oluşturun.' : 'Create your first request to get offers from artists.'}
+          cta={lang === 'tr' ? 'İstek oluştur' : 'Create a request'}
+          to="/dashboard/create-request"
         />
-        <Link to="/dashboard/create-request" className="btn btn-sm btn-accent">{lang === 'tr' ? '＋ Yeni istek' : '＋ New request'}</Link>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-        {REQUESTS.map(r => <RequestCard key={r.id} request={r} />)}
-      </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+          {data.map(r => (
+            <RequestRowCard key={r.id} r={r} lang={lang} onCancel={async (id) => { await requests.cancel(id); reload(); }} />
+          ))}
+        </div>
+      ))}
     </DashboardLayout>
   );
 }
@@ -153,212 +276,288 @@ export function MyRequests() {
 export function OffersReceived() {
   useReveal();
   const { lang } = useLang();
-  const [compare, setCompare] = useState(false);
+  const { data, error, reload } = useLoad(() => offers.list());
+  const [busy, setBusy] = useState('');
+  const act = async (id: string, action: 'accept' | 'reject') => {
+    setBusy(id);
+    try { await offers.act(id, action); } finally { setBusy(''); reload(); }
+  };
   return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Alınan teklifler' : 'Offers received'} subtitle={lang === 'tr' ? 'Brief’leriniz için sanatçı ve stüdyo teklifleri.' : 'Offers from artists and studios on your briefs.'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup
-          value="all"
-          onChange={() => {}}
-          options={[{value:'all',label: lang==='tr'?'Tümü':'All'},{value:'sent',label:'New'},{value:'viewed',label:'Viewed'},{value:'accepted',label:'Accepted'},{value:'rejected',label:'Rejected'}]}
-        />
-        <button className="btn btn-sm" onClick={() => setCompare(c => !c)}>{compare ? (lang === 'tr' ? 'Listeye dön' : 'Back to list') : (lang === 'tr' ? 'Karşılaştır' : 'Compare')}</button>
-      </div>
-
-      {!compare ? (
-        <div className="col gap-3">
-          {OFFERS.map(o => <OfferCard key={o.id} offer={o} />)}
-        </div>
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Gelen teklifler' : 'Offers received'} subtitle={lang === 'tr' ? 'Sanatçıların isteklerinize gönderdiği gerçek teklifler.' : 'Real offers artists sent on your requests.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (data.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Henüz teklif yok' : 'No offers yet'} body={lang === 'tr' ? 'Bir istek yayınlayın; teklifler burada toplanır.' : 'Publish a request — offers will collect here.'} cta={lang === 'tr' ? 'İstek oluştur' : 'Create a request'} to="/dashboard/create-request" />
       ) : (
-        <div style={{ overflowX: 'auto', border: '1px solid var(--hairline)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 760 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--hairline)' }}>
-                {[lang==='tr'?'Sanatçı':'Artist', lang==='tr'?'Şehir':'City', lang==='tr'?'Fiyat':'Price', lang==='tr'?'Süre':'Hours', lang==='tr'?'Randevu':'Slot', lang==='tr'?'Puan':'Rating', ''].map(h => (
-                  <th key={h} className="mono text-muted" style={{ textAlign: 'left', padding: 12 }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {OFFERS.map(o => (
-                <tr key={o.id} style={{ borderBottom: '1px solid var(--hairline)' }}>
-                  <td style={{ padding: 12 }}><div className="row center gap-3"><AvatarBubble name={o.artistName} size={28} />{o.artistName}{o.verified && <span className="tag tag-accent" style={{ padding: '2px 6px' }}>✓</span>}</div></td>
-                  <td style={{ padding: 12 }} className="mono text-muted">{o.artistCity}</td>
-                  <td style={{ padding: 12 }} className="mono">₺{o.price.toLocaleString()}</td>
-                  <td style={{ padding: 12 }} className="mono">{o.estimatedHours}h</td>
-                  <td style={{ padding: 12 }} className="mono text-muted">{o.appointmentAt}</td>
-                  <td style={{ padding: 12 }} className="mono">★ {o.rating}</td>
-                  <td style={{ padding: 12 }}><button className="btn btn-sm btn-accent">Accept</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </DashboardLayout>
-  );
-}
-
-/* ---------- Messages ---------- */
-export function CustomerMessages() {
-  useReveal();
-  const { lang } = useLang();
-  const [activeId, setActiveId] = useState(CONVERSATIONS[0].id);
-  const conversation = CONVERSATIONS.find(c => c.id === activeId)!;
-  const msgs = MESSAGES.filter(m => m.conversationId === activeId);
-  return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Mesajlar' : 'Messages'}>
-      <div className="msg-grid" style={{ gap: 0, border: '1px solid var(--hairline)' }}>
-        <div className="col" style={{ borderRight: '1px solid var(--hairline)', maxHeight: 580, overflowY: 'auto' }}>
-          <div style={{ padding: 14, borderBottom: '1px solid var(--hairline)' }}>
-            <Input placeholder={lang === 'tr' ? 'Sohbet ara' : 'Search conversations'} />
-          </div>
-          {CONVERSATIONS.map(c => (
-            <button key={c.id} onClick={() => setActiveId(c.id)} style={{ display: 'block', width: '100%', textAlign: 'left' }}>
-              <ConversationRow c={c} active={c.id === activeId} />
-            </button>
-          ))}
-        </div>
-        <div className="col">
-          <div className="row between center" style={{ padding: 16, borderBottom: '1px solid var(--hairline)' }}>
-            <div className="row gap-3 center">
-              <AvatarBubble name={conversation.with} size={36} />
-              <div className="col">
-                <strong>{conversation.with}</strong>
-                <span className="mono text-muted">{conversation.role}</span>
-              </div>
-            </div>
-            <button className="btn btn-sm btn-ghost">View profile</button>
-          </div>
-          <div className="col gap-3" style={{ padding: 18, minHeight: 320, maxHeight: 460, overflowY: 'auto' }}>
-            {msgs.map(m => (
-              <div key={m.id} className="row" style={{ justifyContent: m.fromMe ? 'flex-end' : 'flex-start' }}>
-                <div style={{
-                  maxWidth: 420,
-                  background: m.fromMe ? 'var(--ink)' : 'var(--paper-warm)',
-                  color: m.fromMe ? 'var(--paper)' : 'var(--ink)',
-                  padding: '10px 14px',
-                  borderRadius: 0,
-                  border: '1px solid var(--hairline)',
-                }}>
-                  <span style={{ display: 'block', fontSize: 14 }}>{m.text}</span>
-                  <span className="mono" style={{ display: 'block', marginTop: 6, opacity: 0.6, fontSize: 10 }}>{m.time}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="row gap-2 center" style={{ padding: 14, borderTop: '1px solid var(--hairline)' }}>
-            <Input placeholder={lang === 'tr' ? 'Mesaj yazın…' : 'Write a message…'} />
-            <button className="btn btn-sm btn-primary">{lang === 'tr' ? 'Gönder' : 'Send'}</button>
-          </div>
-        </div>
-      </div>
-    </DashboardLayout>
-  );
-}
-
-/* ---------- Notifications ---------- */
-export function CustomerNotifications() {
-  useReveal();
-  const { lang } = useLang();
-  return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
-      <div className="row between center" style={{ marginBottom: 18 }}>
-        <ChoiceGroup value="all" onChange={() => {}} options={[
-          { value: 'all',     label: lang === 'tr' ? 'Tümü' : 'All' },
-          { value: 'offers',  label: lang === 'tr' ? 'Teklifler' : 'Offers' },
-          { value: 'msgs',    label: lang === 'tr' ? 'Mesajlar' : 'Messages' },
-          { value: 'appts',   label: lang === 'tr' ? 'Randevular' : 'Appointments' },
-          { value: 'system',  label: lang === 'tr' ? 'Sistem' : 'System' },
-        ]} />
-        <button className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Tümünü okundu işaretle' : 'Mark all read'}</button>
-      </div>
-      <div className="col">
-        {NOTIFICATIONS.map(n => <NotificationItem key={n.id} n={n} />)}
-      </div>
-    </DashboardLayout>
-  );
-}
-
-/* ---------- Favorites ---------- */
-export function CustomerFavorites() {
-  useReveal();
-  const { lang } = useLang();
-  return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Favoriler' : 'Favorites'}>
-      <h3 className="mono text-muted" style={{ marginBottom: 12 }}>{lang === 'tr' ? 'Sanatçılar' : 'Artists'}</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-        {ARTISTS.slice(0, 4).map(a => <ArtistCard key={a.id} artist={a} />)}
-      </div>
-      <h3 className="mono text-muted" style={{ margin: '40px 0 12px' }}>{lang === 'tr' ? 'Tasarımlar' : 'Designs'}</h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 16 }}>
-        {DESIGNS.slice(0, 6).map(d => <TattooCard key={d.id} design={d} />)}
-      </div>
-    </DashboardLayout>
-  );
-}
-
-/* ---------- Appointments ---------- */
-export function CustomerAppointments() {
-  useReveal();
-  const { lang } = useLang();
-  return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Randevular' : 'Appointments'} subtitle={lang === 'tr' ? 'Tüm randevularınız ve geçmiş.' : 'All your bookings and history.'}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        {APPOINTMENTS.map(a => <AppointmentCard key={a.id} ap={a} />)}
-      </div>
-    </DashboardLayout>
-  );
-}
-
-/* ---------- Order tracking ---------- */
-export function CustomerTracking() {
-  useReveal();
-  const { lang } = useLang();
-  const steps = [
-    { k: 'request', label: lang === 'tr' ? 'İstek oluşturuldu' : 'Request created' },
-    { k: 'offers',  label: lang === 'tr' ? 'Teklifler alındı' : 'Offers received' },
-    { k: 'accept',  label: lang === 'tr' ? 'Teklif kabul edildi' : 'Offer accepted' },
-    { k: 'book',    label: lang === 'tr' ? 'Randevu oluşturuldu' : 'Appointment booked' },
-    { k: 'complete', label: lang === 'tr' ? 'Tamamlandı' : 'Completed' },
-    { k: 'review',  label: lang === 'tr' ? 'Yorum bırakıldı' : 'Reviewed' },
-  ];
-  return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Sipariş takibi' : 'Order tracking'}>
-      {REQUESTS.slice(0, 3).map((r) => (
-        <div key={r.id} className="card card-pad col gap-4" style={{ marginBottom: 16 }}>
-          <div className="row between">
-            <strong>{r.title}</strong>
-            <span className="mono text-muted">#{r.id.toUpperCase()}</span>
-          </div>
-          <ol className="row between" style={{ listStyle: 'none', padding: 0, margin: 0, gap: 8, flexWrap: 'wrap' }}>
-            {steps.map((s, i) => {
-              const idx = r.status === 'open' ? 1 : r.status === 'reviewing' ? 2 : r.status === 'booked' ? 4 : 6;
-              const done = i < idx;
-              return (
-                <li key={s.k} className="col gap-2" style={{ flex: 1, minWidth: 110 }}>
-                  <span style={{ display: 'block', height: 2, background: done ? 'var(--accent)' : 'var(--hairline-strong)' }} />
-                  <span className="mono" style={{ color: done ? 'var(--accent)' : 'var(--muted)' }}>{String(i + 1).padStart(2, '0')}</span>
-                  <span style={{ fontSize: 13 }}>{s.label}</span>
-                </li>
-              );
-            })}
-          </ol>
+        <div className="col gap-3">
+          {data.map(o => <OfferRowCard key={o.id} o={o} lang={lang} onAct={act} busy={busy} />)}
         </div>
       ))}
     </DashboardLayout>
   );
 }
 
-/* ---------- Customer reviews ---------- */
-export function CustomerReviews() {
+/* ---------- Messages ---------- */
+export function CustomerMessages() {
+  return <MessagesPage scope="customer" />;
+}
+
+export function MessagesPage({ scope }: { scope: 'customer' | 'studio' }) {
+  useReveal();
+  const { lang } = useLang();
+  const { user } = useAuth();
+  const { data: threads, error } = useLoad(() => messages.threads());
+  const [activeId, setActiveId] = useState<string>('');
+  const [thread, setThread] = useState<ApiMessage[] | null>(null);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const active = activeId || threads?.[0]?.peerId || '';
+  useEffect(() => {
+    if (!active) return;
+    messages.thread(active).then(setThread).catch(() => setThread([]));
+  }, [active]);
+  const send = async () => {
+    if (!text.trim() || !active) return;
+    setBusy(true);
+    try {
+      await messages.send(active, text.trim());
+      setText('');
+      setThread(await messages.thread(active));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <DashboardLayout scope={scope} title={lang === 'tr' ? 'Mesajlar' : 'Messages'}>
+      {error && <ErrorNote message={error} />}
+      {!threads && !error && <Loading />}
+      {threads && (threads.length === 0 ? (
+        <Empty
+          title={lang === 'tr' ? 'Henüz mesaj yok' : 'No messages yet'}
+          body={lang === 'tr' ? 'Bir teklif alışverişi başlayınca mesajlaşma açılır.' : 'Messaging opens once an offer exists between you and the other side.'}
+        />
+      ) : (
+        <div className="msg-grid" style={{ gap: 0, border: '1px solid var(--hairline)' }}>
+          <div className="col" style={{ borderRight: '1px solid var(--hairline)', maxHeight: 580, overflowY: 'auto' }}>
+            {threads.map(th => (
+              <button key={th.peerId} onClick={() => setActiveId(th.peerId)} style={{ display: 'block', width: '100%', textAlign: 'left' }}>
+                <div className="col gap-1" style={{ padding: 14, borderBottom: '1px solid var(--hairline)', background: th.peerId === active ? 'var(--paper-warm)' : 'transparent' }}>
+                  <strong style={{ fontSize: 14 }}>{th.peerName}</strong>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{th.lastText.slice(0, 42)}</span>
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="col" style={{ minHeight: 420 }}>
+            <div className="col gap-2" style={{ flex: 1, padding: 18, overflowY: 'auto', maxHeight: 460 }}>
+              {(thread ?? []).map(m => (
+                <div key={m.id} className="col" style={{ alignItems: m.fromId === user?.id ? 'flex-end' : 'flex-start' }}>
+                  <span style={{
+                    background: m.fromId === user?.id ? 'var(--ink)' : 'var(--paper-warm)',
+                    color: m.fromId === user?.id ? 'var(--paper)' : 'var(--ink)',
+                    padding: '8px 12px', maxWidth: '80%', fontSize: 14,
+                  }}>{m.text}</span>
+                </div>
+              ))}
+              {thread && thread.length === 0 && <span className="mono text-muted">{lang === 'tr' ? 'İlk mesajı yazın.' : 'Write the first message.'}</span>}
+            </div>
+            <div className="row gap-2" style={{ padding: 14, borderTop: '1px solid var(--hairline)' }}>
+              <input
+                className="input" style={{ flex: 1, border: '1px solid var(--hairline-strong)', padding: '10px 12px' }}
+                placeholder={lang === 'tr' ? 'Mesaj yazın…' : 'Write a message…'}
+                value={text} onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+              />
+              <button className="btn btn-sm btn-accent" onClick={send} disabled={busy || !text.trim()}>{lang === 'tr' ? 'Gönder' : 'Send'}</button>
+            </div>
+          </div>
+        </div>
+      ))}
+    </DashboardLayout>
+  );
+}
+
+/* ---------- Notifications (derived from real offers) ---------- */
+export function CustomerNotifications() {
+  useReveal();
+  const { lang } = useLang();
+  const { data, error } = useLoad(() => offers.list());
+  const events = (data ?? []).filter(o => o.status !== 'sent').slice(0, 20);
+  return (
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (events.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Bildirim yok' : 'Nothing yet'} body={lang === 'tr' ? 'Teklif hareketleri burada görünür.' : 'Offer activity shows up here.'} />
+      ) : (
+        <div className="col" style={{ border: '1px solid var(--hairline)' }}>
+          {events.map(o => (
+            <div key={o.id} className="row between center" style={{ padding: 16, borderBottom: '1px solid var(--hairline)' }}>
+              <span style={{ fontSize: 14 }}>
+                {o.artistName} — {o.requestTitle}
+              </span>
+              <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+            </div>
+          ))}
+        </div>
+      ))}
+    </DashboardLayout>
+  );
+}
+
+/* ---------- Favorites (feature not live yet — honest empty state) ---------- */
+export function CustomerFavorites() {
   useReveal();
   const { lang } = useLang();
   return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Yorumlarım' : 'My reviews'}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-        {REVIEWS.slice(0, 3).map(r => <ReviewCard key={r.id} r={r} />)}
-      </div>
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Favoriler' : 'Favorites'}>
+      <Empty
+        title={lang === 'tr' ? 'Henüz favori yok' : 'No favorites yet'}
+        body={lang === 'tr' ? 'Tasarımları keşfedin; favorileriniz burada toplanacak.' : 'Browse designs — pieces you save will collect here.'}
+        cta={lang === 'tr' ? 'Tasarımları keşfet' : 'Browse designs'}
+        to="/designs"
+      />
+    </DashboardLayout>
+  );
+}
+
+/* ---------- Appointments (accepted offers) ---------- */
+export function CustomerAppointments() {
+  useReveal();
+  const { lang } = useLang();
+  const { data, error } = useLoad(() => offers.list());
+  const upcoming = (data ?? []).filter(o => o.status === 'accepted');
+  return (
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Randevular' : 'Appointments'} subtitle={lang === 'tr' ? 'Kabul edilen teklifler.' : 'Accepted offers become appointments.'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (upcoming.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Randevu yok' : 'No appointments yet'} body={lang === 'tr' ? 'Bir teklifi kabul edince randevunuz burada görünür.' : 'Accept an offer and it appears here.'} />
+      ) : (
+        <div className="col gap-3">
+          {upcoming.map(o => (
+            <article key={o.id} className="card card-pad row between center">
+              <div className="col gap-1">
+                <strong>{o.requestTitle}</strong>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{o.artistName}{o.appointmentAt ? ` · ${o.appointmentAt}` : ''}</span>
+              </div>
+              <span className="display" style={{ fontSize: 20 }}>₺{o.price.toLocaleString()}</span>
+            </article>
+          ))}
+        </div>
+      ))}
+    </DashboardLayout>
+  );
+}
+
+/* ---------- Tracking ---------- */
+export function CustomerTracking() {
+  useReveal();
+  const { lang } = useLang();
+  const { data, error } = useLoad(() => offers.list());
+  const active = (data ?? []).filter(o => o.status === 'accepted' || o.status === 'completed');
+  return (
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Sipariş takibi' : 'Order tracking'}>
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (active.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Takip edilecek iş yok' : 'Nothing to track yet'} body={lang === 'tr' ? 'Kabul edilmiş işleriniz burada izlenir.' : 'Accepted jobs are tracked here.'} />
+      ) : (
+        <div className="col gap-3">
+          {active.map(o => (
+            <article key={o.id} className="card card-pad col gap-2">
+              <div className="row between center">
+                <strong>{o.requestTitle}</strong>
+                <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+              </div>
+              <div className="row gap-2 center">
+                {['sent', 'accepted', 'completed'].map((step, i) => {
+                  const reached = step === 'sent' || (step === 'accepted') || (step === 'completed' && o.status === 'completed');
+                  return (
+                    <div key={step} className="row gap-2 center">
+                      {i > 0 && <span style={{ width: 28, height: 1, background: 'var(--hairline-strong)' }} />}
+                      <span className="mono" style={{ fontSize: 10, opacity: reached ? 1 : 0.4 }}>{step.toUpperCase()}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          ))}
+        </div>
+      ))}
+    </DashboardLayout>
+  );
+}
+
+/* ---------- Reviews ---------- */
+export function CustomerReviews() {
+  useReveal();
+  const { lang } = useLang();
+  const { data: myOffers, reload: reloadOffers } = useLoad(() => offers.list());
+  const { data: myReviews, error, reload } = useLoad(() => reviews.mine());
+  const reviewed = new Set((myReviews ?? []).map(r => r.offerId));
+  const reviewable = (myOffers ?? []).filter(o => o.status === 'completed' && !reviewed.has(o.id));
+  const [target, setTarget] = useState<ApiOffer | null>(null);
+  const [rating, setRating] = useState(5);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Yorumlarım' : 'My reviews'} subtitle={lang === 'tr' ? 'Yalnızca tamamlanmış işler yorumlanabilir.' : 'Only completed jobs can be reviewed.'}>
+      {error && <ErrorNote message={error} />}
+      {reviewable.length > 0 && (
+        <div className="card card-pad col gap-3" style={{ marginBottom: 28 }}>
+          <span className="mono text-muted">{lang === 'tr' ? 'Yorum bekleyen işler' : 'Awaiting your review'}</span>
+          {reviewable.map(o => (
+            <div key={o.id} className="row between center">
+              <span>{o.requestTitle} — {o.artistName}</span>
+              <button className="btn btn-sm" onClick={() => setTarget(o)}>{lang === 'tr' ? 'Yorumla' : 'Review'}</button>
+            </div>
+          ))}
+          {target && (
+            <form
+              className="col gap-3"
+              style={{ borderTop: '1px solid var(--hairline)', paddingTop: 16 }}
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!text.trim()) return;
+                setBusy(true);
+                try {
+                  await reviews.create({ offerId: target.id, rating, text: text.trim() });
+                  setTarget(null); setText(''); setRating(5);
+                  reload(); reloadOffers();
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              <span className="mono">{target.artistName} · {target.requestTitle}</span>
+              <ChoiceGroup value={String(rating)} onChange={(v) => setRating(Number(v))} options={[1, 2, 3, 4, 5].map(n => ({ value: String(n), label: '★'.repeat(n) }))} />
+              <Textarea rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder={lang === 'tr' ? 'Deneyiminiz…' : 'How was it…'} />
+              <div className="row gap-2">
+                <button className="btn btn-sm btn-accent" type="submit" disabled={busy || !text.trim()}>{lang === 'tr' ? 'Gönder' : 'Submit'}</button>
+                <button className="btn btn-sm" type="button" onClick={() => setTarget(null)}>{lang === 'tr' ? 'Vazgeç' : 'Cancel'}</button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+      {!myReviews && !error && <Loading />}
+      {myReviews && (myReviews.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Henüz yorum yok' : 'No reviews yet'} body={lang === 'tr' ? 'Tamamlanan ilk işinizden sonra yorum bırakabilirsiniz.' : 'After your first completed job you can leave a review.'} />
+      ) : (
+        <div className="col gap-3">
+          {myReviews.map(r => (
+            <article key={r.id} className="card card-pad col gap-2">
+              <div className="row between center">
+                <strong>{r.requestTitle}</strong>
+                <span className="mono">{'★'.repeat(r.rating)}</span>
+              </div>
+              <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.text}</p>
+              <span className="mono text-muted" style={{ fontSize: 11 }}>{r.createdAt}</span>
+            </article>
+          ))}
+        </div>
+      ))}
     </DashboardLayout>
   );
 }
@@ -367,54 +566,27 @@ export function CustomerReviews() {
 export function CustomerProfile() {
   useReveal();
   const { lang } = useLang();
+  const { user } = useAuth();
   return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Profil' : 'Profile'}>
-      <ProfileCard name="Naz Y." role={lang === 'tr' ? 'Müşteri' : 'Customer'} city="Istanbul" />
-      <div className="split" style={{ marginTop: 32 }}>
-        <form className="col" onSubmit={(e) => e.preventDefault()}>
-          <Field label={lang === 'tr' ? 'Adınız' : 'Full name'}><Input defaultValue="Naz Y." /></Field>
-          <Field label="Email"><Input defaultValue="naz@example.com" type="email" /></Field>
-          <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
-            <Select options={CITIES.map(c => ({ value: c, label: c }))} defaultValue="Istanbul" />
-          </Field>
-          <Field label={lang === 'tr' ? 'Telefon' : 'Phone'}><Input defaultValue="+90 5XX XXX XX XX" /></Field>
-          <Field label={lang === 'tr' ? 'Dil' : 'Language'}>
-            <Select options={[{ value: 'en', label: 'English' }, { value: 'tr', label: 'Türkçe' }]} defaultValue={lang} />
-          </Field>
-          <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-primary">{lang === 'tr' ? 'Kaydet' : 'Save'}</button>
-            <button className="btn btn-ghost" type="button">{lang === 'tr' ? 'Vazgeç' : 'Discard'}</button>
-          </div>
-        </form>
-        <aside className="col gap-4">
-          <span className="mono text-muted">{lang === 'tr' ? 'Hesap' : 'Account'}</span>
-          {[
-            ['Security & privacy', 'Güvenlik & gizlilik'],
-            ['Connected accounts', 'Bağlı hesaplar'],
-            ['Order history', 'Sipariş geçmişi'],
-            ['Reviews', 'Yorumlar'],
-            ['Customer service', 'Müşteri hizmetleri'],
-            ['FAQ', 'SSS'],
-            ['About', 'Hakkında'],
-            ['Block & report', 'Engelle & bildir'],
-          ].map(([en, tr]) => (
-            <div key={en} className="row between" style={{ padding: '14px 0', borderBottom: '1px solid var(--hairline)' }}>
-              <span>{lang === 'tr' ? tr : en}</span>
-              <span className="mono text-muted">→</span>
-            </div>
-          ))}
-        </aside>
+    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Profilim' : 'My profile'}>
+      <div className="card card-pad col gap-3" style={{ maxWidth: 520 }}>
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Ad' : 'Name'}</span>
+          <strong>{user?.name}</strong>
+        </div>
+        <div className="row between center">
+          <span className="mono text-muted">Email</span>
+          <span>{user?.email}</span>
+        </div>
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Şehir' : 'City'}</span>
+          <span>{user?.city ?? '—'}</span>
+        </div>
+        <div className="row between center">
+          <span className="mono text-muted">{lang === 'tr' ? 'Üyelik' : 'Member since'}</span>
+          <span>{user?.createdAt}</span>
+        </div>
       </div>
     </DashboardLayout>
-  );
-}
-
-/* ---------- Local helper ---------- */
-function SectionTitle({ num, label, action }: { num: string; label: string; action?: React.ReactNode }) {
-  return (
-    <div className="row between center" style={{ margin: '36px 0 16px', borderBottom: '1px solid var(--hairline)', paddingBottom: 10 }}>
-      <span className="mono text-muted">{num} · {label}</span>
-      {action}
-    </div>
   );
 }

@@ -1,13 +1,16 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { SectionHeader } from '../components/SectionHeader';
-import { ArtistCard, TattooCard, StudioCard } from '../components/Cards';
 import { Field, Input, Select, Textarea, ChoiceGroup } from '../components/Form';
-import { ARTISTS, STUDIOS, DESIGNS, STYLES, CITIES } from '../data/mock';
+import { Empty, Loading } from '../components/Empty';
+import { STYLES, CITIES } from '../data/mock';
+import { auth, artists as artistsApi, type ApiArtist, type ApiPortfolioItem } from '../lib/api';
+import { useAuth, isArtistRole } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
+import { AvatarBubble } from '../components/Visual';
 
 function Page({ title, italic, eyebrow, num, children }: { title: string; italic?: string; eyebrow?: string; num: string; children: React.ReactNode }) {
   useReveal();
@@ -57,12 +60,15 @@ export function HowItWorks() {
   );
 }
 
-/* ---------- Browse Artists ---------- */
+/* ---------- Browse Artists (real registered accounts) ---------- */
 export function BrowseArtists() {
   const { lang } = useLang();
   const [city, setCity] = useState('all');
   const [style, setStyle] = useState<string>('all');
-  const list = ARTISTS.filter(a => (city === 'all' || a.city === city) && (style === 'all' || a.styles.includes(style as any)));
+  const [list, setList] = useState<ApiArtist[] | null>(null);
+  useEffect(() => { artistsApi.list().then(setList).catch(() => setList([])); }, []);
+  const filtered = (list ?? []).filter(a =>
+    (city === 'all' || a.city === city) && (style === 'all' || (a.styles ?? []).includes(style)));
   return (
     <Page num="02" eyebrow={lang === 'tr' ? 'Sanatçılar' : 'Artists'} title={lang === 'tr' ? 'Sanatçıları' : 'Browse'} italic={lang === 'tr' ? 'keşfet.' : 'artists.'}>
       <div className="row gap-3 wrap" style={{ marginBottom: 24 }}>
@@ -74,40 +80,80 @@ export function BrowseArtists() {
           options={[{ value: 'all', label: lang === 'tr' ? 'Tüm stiller' : 'All styles' }, ...STYLES.map(s => ({ value: s.key, label: s[lang] }))]}
           value={style} onChange={(e) => setStyle(e.target.value)}
         />
-        <div className="flex-1" />
-        <Input placeholder={lang === 'tr' ? 'Ara' : 'Search'} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-        {list.map(a => <ArtistCard key={a.id} artist={a} />)}
-      </div>
-
-      <div style={{ marginTop: 80 }}>
-        <h3 className="display display-md" style={{ marginBottom: 24 }}>{lang === 'tr' ? 'Stüdyolar' : 'Studios'}</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 24 }}>
-          {STUDIOS.map(s => <StudioCard key={s.id} studio={s} />)}
+      {list === null ? (
+        <Loading />
+      ) : filtered.length === 0 ? (
+        <Empty
+          title={lang === 'tr' ? 'Henüz sanatçı yok' : 'No artists yet'}
+          body={lang === 'tr' ? 'Sanatçılar katıldıkça burada listelenecek.' : 'Artists appear here as they join the platform.'}
+          cta={lang === 'tr' ? 'Sanatçı olarak katıl' : 'Join as artist'}
+          to="/register"
+        />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
+          {filtered.map(a => (
+            <article key={a.id} className="card card-pad col gap-3">
+              <div className="row center gap-3">
+                <AvatarBubble name={a.name} size={44} />
+                <div className="col">
+                  <strong>{a.name}</strong>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>
+                    {a.role === 'studio' ? 'Studio' : 'Artist'}{a.city ? ` · ${a.city}` : ''}
+                  </span>
+                </div>
+              </div>
+              {a.bio && <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{a.bio}</p>}
+              <div className="row between center">
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{(a.styles ?? []).join(' · ') || '—'}</span>
+                <span className="mono">{a.rating != null ? `★ ${a.rating} (${a.reviewCount})` : (lang === 'tr' ? 'Yeni' : 'New')}</span>
+              </div>
+            </article>
+          ))}
         </div>
-      </div>
+      )}
     </Page>
   );
 }
 
-/* ---------- Browse Designs ---------- */
+/* ---------- Browse Designs (real approved portfolio uploads) ---------- */
 export function BrowseDesigns() {
   const { lang } = useLang();
   const [style, setStyle] = useState('all');
-  const list = DESIGNS.filter(d => style === 'all' || d.style === style);
+  const [list, setList] = useState<ApiPortfolioItem[] | null>(null);
+  useEffect(() => {
+    fetch('/api/uploads').then(r => r.json()).then(d => setList(Array.isArray(d) ? d : [])).catch(() => setList([]));
+  }, []);
+  const filtered = (list ?? []).filter(d => style === 'all' || d.style === style);
   return (
     <Page num="03" eyebrow={lang === 'tr' ? 'Tasarımlar' : 'Designs'} title={lang === 'tr' ? 'Tasarımları' : 'Browse'} italic={lang === 'tr' ? 'keşfet.' : 'designs.'}>
       <div className="row gap-2 wrap" style={{ marginBottom: 24 }}>
         <ChoiceGroup
-          value={style as any}
+          value={style}
           onChange={(v) => setStyle(v)}
           options={[{ value: 'all', label: lang === 'tr' ? 'Tümü' : 'All' }, ...STYLES.map(s => ({ value: s.key, label: s[lang] }))]}
         />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 24 }}>
-        {list.map(d => <TattooCard key={d.id} design={d} />)}
-      </div>
+      {list === null ? (
+        <Loading />
+      ) : filtered.length === 0 ? (
+        <Empty
+          title={lang === 'tr' ? 'Henüz tasarım yok' : 'No designs yet'}
+          body={lang === 'tr' ? 'Sanatçılar çalışmalarını yükledikçe burada görünecek.' : 'Approved artist work appears here as it is published.'}
+        />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 24 }}>
+          {filtered.map(d => (
+            <article key={d.id} className="card" style={{ overflow: 'hidden' }}>
+              <img src={d.imageUrl} alt={d.title} loading="lazy" style={{ width: '100%', aspectRatio: d.imageRatio || 1, objectFit: 'cover', display: 'block' }} />
+              <div className="card-pad col gap-1">
+                <strong>{d.title}</strong>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{d.artistName} · {d.style}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </Page>
   );
 }
@@ -137,17 +183,39 @@ export function Categories() {
 /* ---------- Login / Register ---------- */
 export function Login() {
   const { lang } = useLang();
+  const navigate = useNavigate();
+  const { setUser } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   return (
     <Page num="05" eyebrow={lang === 'tr' ? 'Giriş' : 'Sign in'} title={lang === 'tr' ? 'Tekrar' : 'Welcome'} italic={lang === 'tr' ? 'hoş geldiniz.' : 'back.'}>
       <div className="split">
-        <form className="col gap-4" onSubmit={(e) => e.preventDefault()} style={{ maxWidth: 460 }}>
-          <Field label="Email"><Input type="email" placeholder="hello@example.com" /></Field>
-          <Field label={lang === 'tr' ? 'Şifre' : 'Password'}><Input type="password" placeholder="••••••••" /></Field>
+        <form
+          className="col gap-4"
+          style={{ maxWidth: 460 }}
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true); setError('');
+            try {
+              const me = await auth.login(email, password);
+              setUser(me);
+              navigate(isArtistRole(me.role) ? '/studio' : '/dashboard');
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Login failed');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {error && <span className="mono" style={{ color: 'var(--ink)' }}>⚠ {error}</span>}
+          <Field label="Email"><Input type="email" placeholder="hello@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
+          <Field label={lang === 'tr' ? 'Şifre' : 'Password'}><Input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required /></Field>
           <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-primary" type="submit">{lang === 'tr' ? 'Giriş yap' : 'Sign in'}</button>
+            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? '…' : (lang === 'tr' ? 'Giriş yap' : 'Sign in')}</button>
             <Link to="/register" className="btn btn-ghost">{lang === 'tr' ? 'Hesap oluştur' : 'Create account'}</Link>
           </div>
-          <span className="mono text-muted">{lang === 'tr' ? 'Şifrenizi mi unuttunuz?' : 'Forgot password?'} <Link to="/contact" style={{ textDecoration: 'underline' }}>{lang === 'tr' ? 'Yardım' : 'Get help'}</Link></span>
         </form>
         <div className="col gap-3">
           <span className="mono text-muted">{lang === 'tr' ? 'Yeni misiniz?' : 'New here?'}</span>
@@ -155,8 +223,7 @@ export function Login() {
             {lang === 'tr' ? 'Dövme yaptırmak ya da yapmak. İkisi de tek hesapla.' : 'Get tattooed, or tattoo. Both with one account.'}
           </p>
           <div className="row gap-3" style={{ marginTop: 12 }}>
-            <Link to="/register?as=customer" className="btn">{lang === 'tr' ? 'Müşteri olarak' : 'As customer'}</Link>
-            <Link to="/register?as=artist" className="btn btn-ghost">{lang === 'tr' ? 'Sanatçı olarak' : 'As artist'}</Link>
+            <Link to="/register" className="btn">{lang === 'tr' ? 'Kayıt ol' : 'Sign up'}</Link>
           </div>
         </div>
       </div>
@@ -166,7 +233,18 @@ export function Login() {
 
 export function Register() {
   const { lang } = useLang();
+  const navigate = useNavigate();
+  const { setUser } = useAuth();
   const [role, setRole] = useState<'customer' | 'artist' | 'studio'>('customer');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [city, setCity] = useState(CITIES[0]);
+  const [bio, setBio] = useState('');
+  const [style, setStyle] = useState(STYLES[0].key);
+  const [password, setPassword] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   return (
     <Page num="06" eyebrow={lang === 'tr' ? 'Kayıt' : 'Sign up'} title={lang === 'tr' ? 'Hesap' : 'Create'} italic={lang === 'tr' ? 'oluştur.' : 'your account.'}>
       <div className="row gap-2 wrap" style={{ marginBottom: 32 }}>
@@ -180,27 +258,53 @@ export function Register() {
           ]}
         />
       </div>
-      <form className="col gap-4" onSubmit={(e) => e.preventDefault()} style={{ maxWidth: 580 }}>
-        <Field label={lang === 'tr' ? (role === 'studio' ? 'Stüdyo adı' : 'Adınız') : (role === 'studio' ? 'Studio name' : 'Full name')}><Input /></Field>
-        <Field label="Email"><Input type="email" /></Field>
+      <form
+        className="col gap-4"
+        style={{ maxWidth: 580 }}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!agreed) { setError(lang === 'tr' ? 'Şartları onaylamanız gerekiyor.' : 'Please accept the Terms.'); return; }
+          setBusy(true); setError('');
+          try {
+            const me = await auth.register({
+              email, password, name, role, city,
+              bio: role !== 'customer' ? bio : undefined,
+              styles: role !== 'customer' ? [style] : undefined,
+            });
+            setUser(me);
+            navigate(isArtistRole(me.role) ? '/studio' : '/dashboard');
+          } catch (err) {
+            setError(err instanceof Error ? err.message : 'Registration failed');
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {error && <span className="mono" style={{ color: 'var(--ink)' }}>⚠ {error}</span>}
+        <Field label={lang === 'tr' ? (role === 'studio' ? 'Stüdyo adı' : 'Adınız') : (role === 'studio' ? 'Studio name' : 'Full name')}>
+          <Input value={name} onChange={(e) => setName(e.target.value)} required />
+        </Field>
+        <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
         <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
-          <Select options={CITIES.map(c => ({ value: c, label: c }))} />
+          <Select options={CITIES.map(c => ({ value: c, label: c }))} value={city} onChange={(e) => setCity(e.target.value)} />
         </Field>
         {role !== 'customer' && (
           <>
-            <Field label={lang === 'tr' ? 'Kısa biyografi' : 'Short bio'}><Textarea rows={3} /></Field>
+            <Field label={lang === 'tr' ? 'Kısa biyografi' : 'Short bio'}><Textarea rows={3} value={bio} onChange={(e) => setBio(e.target.value)} /></Field>
             <Field label={lang === 'tr' ? 'Ana stil' : 'Primary style'}>
-              <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} />
+              <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value as typeof style)} />
             </Field>
           </>
         )}
-        <Field label={lang === 'tr' ? 'Şifre' : 'Password'}><Input type="password" /></Field>
+        <Field label={lang === 'tr' ? 'Şifre (en az 8 karakter)' : 'Password (min 8 characters)'}>
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+        </Field>
         <label className="row gap-2 center" style={{ marginTop: 8 }}>
-          <input type="checkbox" />
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
           <span className="mono text-muted">{lang === 'tr' ? '18 yaşından büyüğüm ve Şartları okudum.' : 'I am 18+ and I agree to the Terms.'}</span>
         </label>
         <div className="row gap-3" style={{ marginTop: 12 }}>
-          <button className="btn btn-primary" type="submit">{lang === 'tr' ? 'Hesap oluştur' : 'Create account'}</button>
+          <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? '…' : (lang === 'tr' ? 'Hesap oluştur' : 'Create account')}</button>
           <Link to="/login" className="btn btn-ghost">{lang === 'tr' ? 'Zaten hesabım var' : 'I have an account'}</Link>
         </div>
       </form>
