@@ -86,7 +86,7 @@ export function AddTattoo() {
   const [title, setTitle] = useState('');
   const [style, setStyle] = useState<TattooStyle>(STYLES[0].key);
   const [image, setImage] = useState<{ url: string; ratio: number } | null>(null);
-  const [published, setPublished] = useState(false);
+  const [notice, setNotice] = useState<'pending' | 'live' | null>(null);
   const [busy, setBusy] = useState(false);
   const ok = tags.length >= 3 && title.trim().length > 0 && !!image && !busy;
   return (
@@ -103,20 +103,26 @@ export function AddTattoo() {
               imageUrl: image.url, imageRatio: image.ratio, source: 'artist',
             });
             setBusy(false);
-            if (saved) { setPublished(true); setTitle(''); setImage(null); }
+            if (saved) { setNotice(saved.status === 'pending' ? 'pending' : 'live'); setTitle(''); setImage(null); }
           }}
         >
-          {published && (
+          {notice && (
             <div className="card card-pad" style={{ marginBottom: 16, borderColor: 'var(--ink)' }}>
-              <span className="mono">✓ {lang === 'tr' ? 'Yayınlandı — ana sayfa akışında.' : 'Published — now live in the landing feed.'}</span>
-              {' '}<Link to="/" className="mono" style={{ textDecoration: 'underline' }}>{lang === 'tr' ? 'Gör' : 'View'}</Link>
+              {notice === 'pending' ? (
+                <span className="mono">✓ {lang === 'tr' ? 'Gönderildi — incelendikten sonra akışta yayınlanır.' : 'Submitted — appears in the feed once reviewed.'}</span>
+              ) : (
+                <>
+                  <span className="mono">✓ {lang === 'tr' ? 'Yayınlandı — ana sayfa akışında.' : 'Published — now live in the landing feed.'}</span>
+                  {' '}<Link to="/" className="mono" style={{ textDecoration: 'underline' }}>{lang === 'tr' ? 'Gör' : 'View'}</Link>
+                </>
+              )}
             </div>
           )}
           <Field label={lang === 'tr' ? 'Görsel' : 'Image'}>
             <UploadImage
               label={lang === 'tr' ? 'Görsel yükle' : 'Upload image'}
               preview={image?.url}
-              onImage={(url, ratio) => { setImage({ url, ratio }); setPublished(false); }}
+              onImage={(url, ratio) => { setImage({ url, ratio }); setNotice(null); }}
             />
           </Field>
           <Field label={lang === 'tr' ? 'Başlık' : 'Title'}>

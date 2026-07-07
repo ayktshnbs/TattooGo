@@ -6,8 +6,6 @@ import { OfferCard, RequestCard, StatsCard, NotificationItem, ConversationRow, A
 import { useLang } from '../../i18n/LangContext';
 import { useReveal } from '../../hooks/useReveal';
 import { OFFERS, REQUESTS, NOTIFICATIONS, CONVERSATIONS, MESSAGES, APPOINTMENTS, DESIGNS, ARTISTS, REVIEWS, STYLES, CITIES } from '../../data/mock';
-import { addUpload } from '../../data/uploads';
-import type { TattooStyle } from '../../data/types';
 import { AvatarBubble } from '../../components/Visual';
 
 /* ---------- Customer Home ---------- */
@@ -42,85 +40,6 @@ export function CustomerHome() {
         {APPOINTMENTS.filter(a => a.status !== 'completed').map(a => <AppointmentCard key={a.id} ap={a} />)}
       </div>
 
-      <SectionTitle num="A4" label={lang === 'tr' ? 'Mürekkebini paylaş' : 'Share your ink'} action={<Link to="/dashboard/share-ink" className="mono">{lang === 'tr' ? 'Paylaş' : 'Share'} →</Link>} />
-      <p className="text-muted" style={{ margin: 0, maxWidth: 520 }}>
-        {lang === 'tr'
-          ? 'Yaptırdığınız dövmenin fotoğrafını yükleyin — ana sayfa akışında yayınlansın.'
-          : 'Upload a photo of your finished tattoo — it gets published in the landing feed.'}
-      </p>
-    </DashboardLayout>
-  );
-}
-
-/* ---------- Share your ink (customer upload → landing feed) ---------- */
-export function ShareInk() {
-  useReveal();
-  const { lang } = useLang();
-  const [title, setTitle] = useState('');
-  const [artistName, setArtistName] = useState('');
-  const [style, setStyle] = useState<TattooStyle>(STYLES[0].key);
-  const [image, setImage] = useState<{ url: string; ratio: number } | null>(null);
-  const [published, setPublished] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const ok = title.trim().length > 0 && !!image && !busy;
-  return (
-    <DashboardLayout
-      scope="customer"
-      title={lang === 'tr' ? 'Mürekkebini paylaş' : 'Share your ink'}
-      subtitle={lang === 'tr' ? 'Bitmiş dövmenizin fotoğrafı ana sayfa akışında yayınlanır.' : 'A photo of your finished tattoo, published in the landing feed.'}
-    >
-      <div className="split">
-        <form
-          className="col"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            if (!ok || !image) return;
-            setBusy(true);
-            const saved = await addUpload({
-              title: title.trim(),
-              artistName: artistName.trim() || (lang === 'tr' ? 'Topluluk' : 'Community'),
-              style, tags: [style, 'community'],
-              imageUrl: image.url, imageRatio: image.ratio, source: 'customer',
-            });
-            setBusy(false);
-            if (saved) { setPublished(true); setTitle(''); setArtistName(''); setImage(null); }
-          }}
-        >
-          {published && (
-            <div className="card card-pad" style={{ marginBottom: 16, borderColor: 'var(--ink)' }}>
-              <span className="mono">✓ {lang === 'tr' ? 'Yayınlandı — ana sayfa akışında.' : 'Published — now live in the landing feed.'}</span>
-              {' '}<Link to="/" className="mono" style={{ textDecoration: 'underline' }}>{lang === 'tr' ? 'Gör' : 'View'}</Link>
-            </div>
-          )}
-          <Field label={lang === 'tr' ? 'Fotoğraf' : 'Photo'}>
-            <UploadImage
-              label={lang === 'tr' ? 'Fotoğraf yükle' : 'Upload photo'}
-              preview={image?.url}
-              onImage={(url, ratio) => { setImage({ url, ratio }); setPublished(false); }}
-            />
-          </Field>
-          <Field label={lang === 'tr' ? 'Başlık' : 'Title'}>
-            <Input placeholder={lang === 'tr' ? 'Kol içi çizgi çiçek' : 'Inner-arm line florals'} value={title} onChange={(e) => setTitle(e.target.value)} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Sanatçı (opsiyonel)' : 'Artist credit (optional)'}>
-            <Input placeholder={lang === 'tr' ? 'Dövmeyi yapan sanatçı' : 'Who made it'} value={artistName} onChange={(e) => setArtistName(e.target.value)} />
-          </Field>
-          <Field label={lang === 'tr' ? 'Stil' : 'Style'}>
-            <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value as TattooStyle)} />
-          </Field>
-          <div className="row gap-3" style={{ marginTop: 12 }}>
-            <button className="btn btn-accent" type="submit" disabled={!ok}>{busy ? (lang === 'tr' ? 'Yükleniyor…' : 'Uploading…') : (lang === 'tr' ? 'Yayınla' : 'Publish')}</button>
-          </div>
-        </form>
-        <aside className="card col">
-          {image && <img src={image.url} alt="" style={{ width: '100%', aspectRatio: image.ratio, objectFit: 'cover', display: 'block' }} />}
-          <div className="card-pad col gap-2">
-            <span className="mono text-muted">{lang === 'tr' ? 'Önizleme' : 'Preview'}</span>
-            <h3 className="display" style={{ fontSize: 22, margin: 0 }}>{title.trim() || '—'}</h3>
-            <span className="mono text-muted">{artistName.trim() || (lang === 'tr' ? 'Topluluk' : 'Community')}</span>
-          </div>
-        </aside>
-      </div>
     </DashboardLayout>
   );
 }

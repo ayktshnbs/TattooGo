@@ -3,8 +3,9 @@ import { useEffect } from 'react';
 import { LangProvider } from './i18n/LangContext';
 
 import { Landing } from './pages/Landing';
+import { Moderation } from './pages/Moderation';
 import { HowItWorks, BrowseArtists, BrowseDesigns, Categories, Login, Register, FAQ, About, Contact, Terms } from './pages/Public';
-import { CustomerHome, CreateRequest, MyRequests, OffersReceived, CustomerMessages, CustomerNotifications, CustomerFavorites, CustomerAppointments, CustomerTracking, CustomerReviews, CustomerProfile, ShareInk } from './pages/customer/Customer';
+import { CustomerHome, CreateRequest, MyRequests, OffersReceived, CustomerMessages, CustomerNotifications, CustomerFavorites, CustomerAppointments, CustomerTracking, CustomerReviews, CustomerProfile } from './pages/customer/Customer';
 import { StudioHome, MyTattoos, AddTattoo, GiveOffer, MyOffers, StudioTracking, StudioCalendar, StudioCampaigns, StudioArtists, StudioMaterials, StudioReviews, StudioMessages, StudioNotifications, StudioStats, StudioProfile } from './pages/studio/Studio';
 
 function ScrollToTop() {
@@ -20,6 +21,7 @@ export default function App() {
         <ScrollToTop />
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/moderation" element={<Moderation />} />
 
           <Route path="/how-it-works" element={<HowItWorks />} />
           <Route path="/artists" element={<BrowseArtists />} />
@@ -44,7 +46,6 @@ export default function App() {
           <Route path="/dashboard/tracking" element={<CustomerTracking />} />
           <Route path="/dashboard/reviews" element={<CustomerReviews />} />
           <Route path="/dashboard/profile" element={<CustomerProfile />} />
-          <Route path="/dashboard/share-ink" element={<ShareInk />} />
 
           {/* Studio / artist dashboard */}
           <Route path="/studio" element={<StudioHome />} />

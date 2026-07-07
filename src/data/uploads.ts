@@ -55,7 +55,7 @@ export interface UploadInput {
   imageRatio: number;
   city?: string;
   price?: number;
-  source: 'artist' | 'customer';
+  source: 'artist'; // landing-feed publishing is artist-only
 }
 
 function localAdd(input: UploadInput): TattooDesign | null {
@@ -100,7 +100,9 @@ export async function addUpload(input: UploadInput): Promise<TattooDesign | null
     });
     if (!res.ok) throw new Error(String(res.status));
     design = await res.json();
-    if (design) cacheUploads([design, ...getUploads()]);
+    // Pending entries are awaiting moderation — they must not enter the
+    // local feed cache, or the submitter would see them as already live.
+    if (design && design.status !== 'pending') cacheUploads([design, ...getUploads()]);
   } catch {
     design = localAdd(input);
   }

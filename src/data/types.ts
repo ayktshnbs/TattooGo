@@ -76,6 +76,7 @@ export interface TattooDesign {
   swatch: string; // gradient swatch token
   imageUrl?: string; // real uploaded image (data URL in the prototype, CDN URL later)
   source?: 'artist' | 'customer'; // who submitted it — undefined for seeded mock data
+  status?: 'pending' | 'approved'; // community uploads await moderation before going public
   createdAt: string;
 }
 
