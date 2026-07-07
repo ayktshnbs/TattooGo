@@ -34,7 +34,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const r = requests.find(x => x.id === id);
         if (!r) return res.status(404).json({ error: 'not found' });
         const isOwner = r.customerId === user.id;
-        const artistCanSee = (user.role === 'artist' || user.role === 'studio') && r.status !== 'cancelled';
+        const isArtist = user.role === 'artist' || user.role === 'studio';
+        // An artist may read a brief only while it is on the open board, or if
+        // they actually bid on it. Once booked/completed it is private to the
+        // owner and the artists involved — an unrelated artist cannot pull it
+        // by guessing the id.
+        const hasOffer = isArtist && offers.some(o => o.requestId === r.id && o.artistId === user.id);
+        const artistCanSee = isArtist && (r.status === 'open' || hasOffer);
         if (!isOwner && !artistCanSee) return res.status(403).json({ error: 'forbidden' });
         return res.status(200).json(withOfferCount(r, offers));
       }
