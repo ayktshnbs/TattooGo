@@ -26,7 +26,19 @@ export interface UserRow {
   styles?: string[];
   passHash: string;
   salt: string;
+  emailVerified?: boolean;
+  sessionEpoch?: number;  // bump to invalidate all sessions for the user
+  failedLogins?: number;  // login rate limiting
+  lockUntil?: number;     // ms epoch
   createdAt: string;
+}
+
+export interface TokenRow {
+  tokenHash: string;      // sha256 of the raw token — raw is only ever emailed
+  userId: string;
+  kind: 'verify' | 'reset';
+  expiresAt: number;      // ms epoch
+  usedAt?: number;
 }
 
 export interface RequestRow {
@@ -87,7 +99,7 @@ export interface ReviewRow {
   ts: number;
 }
 
-type CollectionName = 'users' | 'requests' | 'offers' | 'messages' | 'reviews';
+type CollectionName = 'users' | 'requests' | 'offers' | 'messages' | 'reviews' | 'tokens';
 
 const KEEP_VERSIONS = 5;
 

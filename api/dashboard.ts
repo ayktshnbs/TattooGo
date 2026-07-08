@@ -1,6 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { readCollection, readFeedIndex, type RequestRow, type OfferRow, type ReviewRow, type MessageRow } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
+import {
+  listOpenRequests, listRequestsByCustomer, listOffersByArtist, listOffersByCustomer,
+  listReviewsByArtist, listThreads, portfolioCountsByArtist,
+} from './_lib/repo.js';
 
 /**
  * Role-scoped dashboard aggregates — every number is computed from real rows
@@ -17,19 +20,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
 
-    const [requests, offers, reviews, messages] = await Promise.all([
-      readCollection<RequestRow>('requests'),
-      readCollection<OfferRow>('offers'),
-      readCollection<ReviewRow>('reviews'),
-      readCollection<MessageRow>('messages'),
-    ]);
-
     if (user.role === 'customer') {
-      const myRequests = requests.filter(r => r.customerId === user.id);
-      const myOffers = offers.filter(o => o.customerId === user.id);
-      const unrepliedThreads = new Set(
-        messages.filter(m => m.toId === user.id).map(m => m.threadId),
-      );
+      const [myRequests, myOffers, threads] = await Promise.all([
+        listRequestsByCustomer(user.id),
+        listOffersByCustomer(user.id),
+        listThreads(user.id),
+      ]);
       return res.status(200).json({
         role: 'customer',
         stats: {
@@ -38,32 +34,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           upcoming: myOffers.filter(o => o.status === 'accepted').length,
           completed: myOffers.filter(o => o.status === 'completed').length,
         },
-        recentRequests: myRequests.sort((a, b) => b.ts - a.ts).slice(0, 4),
-        recentOffers: myOffers.sort((a, b) => b.ts - a.ts).slice(0, 4),
-        threadCount: unrepliedThreads.size,
+        recentRequests: myRequests.slice(0, 4),
+        recentOffers: myOffers.slice(0, 4),
+        threadCount: threads.length,
       });
     }
 
-    // artist / studio
-    const myOffers = offers.filter(o => o.artistId === user.id);
-    const myReviews = reviews.filter(r => r.artistId === user.id);
+    const [openBoard, myOffers, myReviews, portfolio] = await Promise.all([
+      listOpenRequests(),
+      listOffersByArtist(user.id),
+      listReviewsByArtist(user.id),
+      portfolioCountsByArtist(user.id),
+    ]);
     const completed = myOffers.filter(o => o.status === 'completed');
-    const accepted = myOffers.filter(o => o.status === 'accepted');
-    const openBoard = requests.filter(r => r.status === 'open');
     const avgRating = myReviews.length
       ? Math.round((myReviews.reduce((s, r) => s + r.rating, 0) / myReviews.length) * 10) / 10
       : null;
-
-    // Portfolio counts come from the moderated feed index.
-    let portfolio = { approved: 0, pending: 0 };
-    try {
-      const feed = await readFeedIndex<{ artistId?: string; status?: string }>();
-      const mine = feed.filter(e => e.artistId === user.id);
-      portfolio = {
-        approved: mine.filter(e => e.status !== 'pending').length,
-        pending: mine.filter(e => e.status === 'pending').length,
-      };
-    } catch { /* feed unavailable — keep zeros */ }
 
     return res.status(200).json({
       role: 'artist',
@@ -71,7 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         openRequests: openBoard.length,
         offersSent: myOffers.length,
         offersPending: myOffers.filter(o => o.status === 'sent').length,
-        jobsBooked: accepted.length,
+        jobsBooked: myOffers.filter(o => o.status === 'accepted').length,
         jobsCompleted: completed.length,
         earnings: completed.reduce((s, o) => s + o.price, 0),
         avgRating,
@@ -79,8 +65,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         portfolioApproved: portfolio.approved,
         portfolioPending: portfolio.pending,
       },
-      recentRequests: openBoard.sort((a, b) => b.ts - a.ts).slice(0, 4),
-      recentOffers: myOffers.sort((a, b) => b.ts - a.ts).slice(0, 4),
+      recentRequests: openBoard.slice(0, 4),
+      recentOffers: myOffers.slice(0, 4),
     });
   } catch (err) {
     console.error('dashboard api error', err);

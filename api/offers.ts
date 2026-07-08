@@ -1,15 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { readCollection, writeCollection, newId, today, type OfferRow, type RequestRow } from './_lib/db.js';
+import { newId, today, type OfferRow } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
+import {
+  listOffersByArtist, listOffersByCustomer, getRequestById, createOffer,
+  acceptOffer, rejectOffer, completeOffer, getOfferById, getUserById, pushNotification,
+} from './_lib/repo.js';
+import { offerReceivedEmail, offerStatusEmail, jobCompletedEmail } from './_lib/email.js';
 
 /**
  * Offers on tattoo requests.
- *   GET   /api/offers                    → artist: offers I sent · customer: offers on my requests
- *   POST  /api/offers                    → artist sends an offer on an open request
- *   PATCH /api/offers {id, action}       → customer: accept | reject · artist: complete
+ *   GET   /api/offers              → artist: offers I sent · customer: offers on my requests
+ *   POST  /api/offers              → artist sends an offer on an open request
+ *   PATCH /api/offers {id, action} → customer: accept | reject · artist: complete
  *
- * accept books the request (other offers stay visible but the board entry
- * closes); complete marks the job done, unlocking a customer review.
+ * State changes are atomic in the repo (guarded single-statement updates).
+ * Emails/notifications fire AFTER the write succeeds and can never undo it.
  */
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -19,11 +24,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const isArtist = user.role === 'artist' || user.role === 'studio';
 
     if (req.method === 'GET') {
-      const offers = await readCollection<OfferRow>('offers');
-      const mine = isArtist
-        ? offers.filter(o => o.artistId === user.id)
-        : offers.filter(o => o.customerId === user.id);
-      return res.status(200).json(mine.sort((a, b) => b.ts - a.ts));
+      const mine = isArtist ? await listOffersByArtist(user.id) : await listOffersByCustomer(user.id);
+      return res.status(200).json(mine);
     }
 
     if (req.method === 'POST') {
@@ -38,15 +40,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'message required (max 2000 chars)' });
       }
 
-      const requests = await readCollection<RequestRow>('requests');
-      const request = requests.find(r => r.id === requestId);
+      const request = await getRequestById(requestId);
       if (!request) return res.status(404).json({ error: 'request not found' });
       if (request.status !== 'open') return res.status(409).json({ error: 'request is no longer open' });
-
-      const offers = await readCollection<OfferRow>('offers');
-      if (offers.some(o => o.requestId === requestId && o.artistId === user.id)) {
-        return res.status(409).json({ error: 'you already sent an offer on this request' });
-      }
 
       const row: OfferRow = {
         id: newId('off'),
@@ -63,7 +59,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         createdAt: today(),
         ts: Date.now(),
       };
-      await writeCollection('offers', [row, ...offers]);
+      const created = await createOffer(row);
+      if (!created) return res.status(409).json({ error: 'you already sent an offer on this request' });
+
+      // Post-write side effects — best-effort, never break the offer.
+      await pushNotification(row.customerId, 'offer', row.artistName, `New offer on “${row.requestTitle}” — ₺${row.price.toLocaleString()}`);
+      const customer = await getUserById(row.customerId);
+      if (customer) await offerReceivedEmail(customer.email, customer.name, row.artistName, row.requestTitle, row.price);
+
       return res.status(201).json(row);
     }
 
@@ -72,38 +75,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof id !== 'string' || !['accept', 'reject', 'complete'].includes(action)) {
         return res.status(400).json({ error: 'id and action (accept|reject|complete) required' });
       }
-      const offers = await readCollection<OfferRow>('offers');
-      const offer = offers.find(o => o.id === id);
-      if (!offer) return res.status(404).json({ error: 'not found' });
 
+      let updated: OfferRow | null = null;
+      if (action === 'accept') updated = await acceptOffer(id, user.id);
+      else if (action === 'reject') updated = await rejectOffer(id, user.id);
+      else updated = await completeOffer(id, user.id);
+
+      if (!updated) {
+        // Guarded update matched nothing — distinguish why for a precise error.
+        const offer = await getOfferById(id);
+        if (!offer) return res.status(404).json({ error: 'not found' });
+        const owner = action === 'complete' ? offer.artistId : offer.customerId;
+        if (owner !== user.id) return res.status(403).json({ error: 'forbidden' });
+        return res.status(409).json({
+          error: action === 'complete' ? 'only accepted offers can be completed' : `offer already ${offer.status}`,
+        });
+      }
+
+      // Post-write side effects.
       if (action === 'accept' || action === 'reject') {
-        if (offer.customerId !== user.id) return res.status(403).json({ error: 'forbidden' });
-        if (offer.status !== 'sent') return res.status(409).json({ error: `offer already ${offer.status}` });
-        offer.status = action === 'accept' ? 'accepted' : 'rejected';
-        await writeCollection('offers', offers);
-        if (action === 'accept') {
-          const requests = await readCollection<RequestRow>('requests');
-          const request = requests.find(r => r.id === offer.requestId);
-          if (request && request.status === 'open') {
-            request.status = 'booked';
-            await writeCollection('requests', requests);
-          }
-        }
-        return res.status(200).json(offer);
+        await pushNotification(updated.artistId, updated.status, updated.customerName,
+          `“${updated.requestTitle}” — offer ${updated.status}`);
+        const artist = await getUserById(updated.artistId);
+        if (artist) await offerStatusEmail(artist.email, artist.name, updated.requestTitle, updated.status as 'accepted' | 'rejected');
+      } else {
+        await pushNotification(updated.customerId, 'completed', updated.artistName,
+          `“${updated.requestTitle}” marked completed — you can leave a review`);
+        const customer = await getUserById(updated.customerId);
+        if (customer) await jobCompletedEmail(customer.email, customer.name, updated.requestTitle);
       }
 
-      // complete — the artist marks an accepted job as done
-      if (offer.artistId !== user.id) return res.status(403).json({ error: 'forbidden' });
-      if (offer.status !== 'accepted') return res.status(409).json({ error: 'only accepted offers can be completed' });
-      offer.status = 'completed';
-      await writeCollection('offers', offers);
-      const requests = await readCollection<RequestRow>('requests');
-      const request = requests.find(r => r.id === offer.requestId);
-      if (request) {
-        request.status = 'completed';
-        await writeCollection('requests', requests);
-      }
-      return res.status(200).json(offer);
+      return res.status(200).json(updated);
     }
 
     res.setHeader('Allow', 'GET, POST, PATCH');

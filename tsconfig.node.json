@@ -5,10 +5,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
-    // Emit out of the project root: a compiled vite.config.js sitting next to
-    // vite.config.ts SHADOWS it — Vite loads the .js and silently ignores any
-    // change to the .ts config (this hid the /api dev proxy).
-    "outDir": "node_modules/.cache/tsbuild"
+    "outDir": "node_modules/.cache/tsbuild",
+    "types": [
+      "node"
+    ]
   },
-  "include": ["vite.config.ts"]
+  "include": [
+    "vite.config.ts"
+  ]
 }

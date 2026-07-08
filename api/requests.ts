@@ -1,57 +1,41 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { put } from '@vercel/blob';
-import { readCollection, writeCollection, newId, today, type RequestRow, type OfferRow } from './_lib/db.js';
+import { newId, today, type RequestRow } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
+import {
+  listOpenRequests, listRequestsByCustomer, getRequestById, createRequest, cancelRequest, hasOffer,
+} from './_lib/repo.js';
 
 /**
  * Tattoo requests (customer briefs).
- *   GET  /api/requests            → customer: own requests · artist: open requests
- *   GET  /api/requests?id=<id>    → one request (owner, or any artist while open/booked)
- *   POST /api/requests            → create (customer only); optional JPEG reference
- *   PATCH /api/requests {id, action: 'cancel'} → owner cancels an open request
- *
- * Every read is scoped by the session — changing ids in the URL cannot reach
- * another customer's private data.
+ *   GET   /api/requests          → customer: own · artist: open board
+ *   GET   /api/requests?id=<id>  → owner always; artist only while open or if they bid
+ *   POST  /api/requests          → create (customer only); optional JPEG reference → Blob
+ *   PATCH /api/requests {id, action:'cancel'}
  */
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
-
-function withOfferCount(r: RequestRow, offers: OfferRow[]) {
-  return { ...r, offerCount: offers.filter(o => o.requestId === r.id).length };
-}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
+    const isArtist = user.role === 'artist' || user.role === 'studio';
 
     if (req.method === 'GET') {
-      const requests = await readCollection<RequestRow>('requests');
-      const offers = await readCollection<OfferRow>('offers');
-
       const id = req.query.id;
       if (typeof id === 'string') {
-        const r = requests.find(x => x.id === id);
+        const r = await getRequestById(id);
         if (!r) return res.status(404).json({ error: 'not found' });
         const isOwner = r.customerId === user.id;
-        const isArtist = user.role === 'artist' || user.role === 'studio';
-        // An artist may read a brief only while it is on the open board, or if
-        // they actually bid on it. Once booked/completed it is private to the
-        // owner and the artists involved — an unrelated artist cannot pull it
-        // by guessing the id.
-        const hasOffer = isArtist && offers.some(o => o.requestId === r.id && o.artistId === user.id);
-        const artistCanSee = isArtist && (r.status === 'open' || hasOffer);
+        const artistCanSee = isArtist && (r.status === 'open' || await hasOffer(r.id, user.id));
         if (!isOwner && !artistCanSee) return res.status(403).json({ error: 'forbidden' });
-        return res.status(200).json(withOfferCount(r, offers));
+        return res.status(200).json(r);
       }
-
-      if (user.role === 'customer') {
-        const mine = requests.filter(r => r.customerId === user.id).sort((a, b) => b.ts - a.ts);
-        return res.status(200).json(mine.map(r => withOfferCount(r, offers)));
-      }
-      // artists see the open board
-      const open = requests.filter(r => r.status === 'open').sort((a, b) => b.ts - a.ts);
-      return res.status(200).json(open.map(r => withOfferCount(r, offers)));
+      const list = user.role === 'customer'
+        ? await listRequestsByCustomer(user.id)
+        : await listOpenRequests();
+      return res.status(200).json(list);
     }
 
     if (req.method === 'POST') {
@@ -67,6 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (typeof v !== 'string' || !v || v.length > 40) return res.status(400).json({ error: `${k} required` });
       }
 
+      // Reference photo: the FILE goes to Vercel Blob; only the URL is stored.
       let referenceUrl: string | undefined;
       if (typeof imageData === 'string' && imageData.length > 0) {
         const match = imageData.match(/^data:image\/jpeg;base64,(.+)$/);
@@ -75,12 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
           return res.status(400).json({ error: 'invalid reference image' });
         }
-        const id = newId('ref');
-        const blob = await put(`references/${id}.jpg`, bytes, { access: 'public', contentType: 'image/jpeg' });
+        const blob = await put(`references/${newId('ref')}.jpg`, bytes, { access: 'public', contentType: 'image/jpeg' });
         referenceUrl = blob.url;
       }
 
-      const requests = await readCollection<RequestRow>('requests');
       const row: RequestRow = {
         id: newId('req'),
         customerId: user.id,
@@ -96,7 +79,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         createdAt: today(),
         ts: Date.now(),
       };
-      await writeCollection('requests', [row, ...requests]);
+      await createRequest(row);
       return res.status(201).json({ ...row, offerCount: 0 });
     }
 
@@ -105,13 +88,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof id !== 'string' || action !== 'cancel') {
         return res.status(400).json({ error: 'id and action=cancel required' });
       }
-      const requests = await readCollection<RequestRow>('requests');
-      const row = requests.find(r => r.id === id);
-      if (!row) return res.status(404).json({ error: 'not found' });
-      if (row.customerId !== user.id) return res.status(403).json({ error: 'forbidden' });
-      if (row.status !== 'open') return res.status(409).json({ error: 'only open requests can be cancelled' });
-      row.status = 'cancelled';
-      await writeCollection('requests', requests);
+      const outcome = await cancelRequest(id, user.id);
+      if (outcome === 'not-found') return res.status(404).json({ error: 'not found' });
+      if (outcome === 'forbidden') return res.status(403).json({ error: 'forbidden' });
+      if (outcome === 'not-open') return res.status(409).json({ error: 'only open requests can be cancelled' });
       return res.status(200).json({ ok: true });
     }
 

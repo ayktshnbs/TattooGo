@@ -12,7 +12,7 @@ import {
   dashboard, requests, offers, reviews, portfolio,
   type ApiRequest, type ApiOffer, type ArtistDashboard, type ApiPortfolioItem,
 } from '../../lib/api';
-import { MessagesPage } from '../customer/Customer';
+import { MessagesPage, NotificationsPage, VerificationRow } from '../customer/Customer';
 
 /**
  * Artist / studio dashboard — every number and list is the signed-in
@@ -504,30 +504,9 @@ export function StudioMessages() {
   return <MessagesPage scope="studio" />;
 }
 
-/* ---------- Notifications (derived from offer status changes) ---------- */
+/* ---------- Notifications (real events from the API) ---------- */
 export function StudioNotifications() {
-  useReveal();
-  const { lang } = useLang();
-  const { data, error } = useLoad(() => offers.list());
-  const events = (data ?? []).filter(o => o.status === 'accepted' || o.status === 'rejected').slice(0, 20);
-  return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
-      {error && <ErrorNote message={error} />}
-      {!data && !error && <Loading />}
-      {data && (events.length === 0 ? (
-        <Empty title={lang === 'tr' ? 'Bildirim yok' : 'Nothing yet'} body={lang === 'tr' ? 'Teklifleriniz yanıtlandıkça burada görünür.' : 'When customers respond to your offers it shows here.'} />
-      ) : (
-        <div className="col" style={{ border: '1px solid var(--hairline)' }}>
-          {events.map(o => (
-            <div key={o.id} className="row between center" style={{ padding: 16, borderBottom: '1px solid var(--hairline)' }}>
-              <span style={{ fontSize: 14 }}>{o.customerName} — {o.requestTitle}</span>
-              <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
-            </div>
-          ))}
-        </div>
-      ))}
-    </DashboardLayout>
-  );
+  return <NotificationsPage scope="studio" />;
 }
 
 /* ---------- Stats (computed from real activity only) ---------- */
@@ -572,6 +551,7 @@ export function StudioProfile() {
           <span className="mono text-muted">Email</span>
           <span>{user?.email}</span>
         </div>
+        <VerificationRow />
         <div className="row between center">
           <span className="mono text-muted">{lang === 'tr' ? 'Rol' : 'Role'}</span>
           <span>{user?.role}</span>

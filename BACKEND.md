@@ -1,116 +1,155 @@
 # TattooGo — Backend
 
-Role-based marketplace backend running on **Vercel Serverless Functions** with
-**Vercel Blob** as the datastore. No third-party services required to run.
+Role-based marketplace backend on **Vercel Serverless Functions**.
+Data layer: **Neon/Postgres** (when `DATABASE_URL` is set) with an automatic
+fallback to the legacy Blob-JSON collections. **Vercel Blob stores only
+files** — portfolio images, request reference photos. Transactional email via
+**Resend**.
 
 ## Architecture
 
-- `api/_lib/db.ts` — collections (`users`, `requests`, `offers`, `messages`,
-  `reviews`) + the portfolio `feed`. Stored as **immutable versioned JSON
-  blobs**: every write creates `db/<name>/<sortable-stamp>.json`; reads resolve
-  the newest version via `list()`. Fixed-pathname overwrites are avoided on
-  purpose — the Blob CDN caches by pathname and served minutes-stale reads.
-- `api/_lib/auth.ts` — `scrypt` password hashing (per-user salt) + HMAC-SHA256
-  signed session tokens in an `httpOnly; Secure; SameSite=Lax` cookie.
-  `AUTH_SECRET` is a Vercel env var.
-- Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`
-  (public directory), `dashboard` (computed aggregates), `uploads` (moderated
-  portfolio). Every read/write is scoped to the session user server-side.
+```
+Browser (Vite SPA)
+   │  same-origin /api/*  (httpOnly session cookie)
+   ▼
+Vercel Functions (api/*.ts)
+   │  api/_lib/auth.ts   — sessions (HMAC cookie, epoch), scrypt passwords
+   │  api/_lib/repo.ts   — SINGLE data seam: Postgres primary, Blob fallback
+   │  api/_lib/email.ts  — Resend, fail-safe (never breaks the action)
+   │  api/_lib/config.ts — PUBLIC_APP_URL etc. (no hardcoded domains)
+   ▼                    ▼
+Neon Postgres      Vercel Blob (files only)
+(all records)      uploads/*.jpg, references/*.jpg
+```
 
-## Authorization model (verified by audit)
+Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`,
+`dashboard`, `uploads` (portfolio), `notifications`.
 
-| Rule | Enforcement |
-| --- | --- |
-| Anonymous → protected endpoints | 401 |
-| Forged/expired session cookie | 401 (HMAC verify) |
-| Customer creates request; artist cannot | role check, 403 |
-| Artist sends offer; customer cannot | role check, 403 |
-| Accept/reject an offer | owner-of-request only, 403 otherwise |
-| Complete a job | owning artist only, 403 otherwise |
-| Review | customer + offer they own + status `completed` + one per offer |
-| Message | only a customer↔artist pair that shares an offer |
-| Read a brief by id | owner always; artist only while `open` or if they bid |
-| Publish to portfolio feed | signed-in artist only |
+## Environment variables
 
-Statistics (`/api/dashboard`, `/api/stats`) are **computed from real rows** —
-zero/`null` when there is no data. Nothing is invented.
+| Var | Required | Purpose |
+| --- | --- | --- |
+| `AUTH_SECRET` | yes (set) | HMAC key for session cookies |
+| `BLOB_READ_WRITE_TOKEN` | yes (set) | Vercel Blob (files + fallback data) |
+| `ADMIN_TOKEN` | yes (set) | /moderation review console |
+| `PUBLIC_APP_URL` | yes (set) | Origin used in email links & redirects — **update when the custom domain goes live** |
+| `DATABASE_URL` | for Postgres | Neon connection string — flips the repo from Blob fallback to Postgres |
+| `RESEND_API_KEY` | for email | Resend API key — without it, emails are skipped (logged), actions still succeed |
+| `RESEND_FROM_EMAIL` | optional | e.g. `TattooGo <no-reply@yourdomain.com>`; defaults to `onboarding@resend.dev` (works before domain verification) |
+| `VITE_API_PROXY` | dev only | localhost /api proxy target (defaults to production) |
 
----
+## Resend setup (one-time)
 
-## Production-ready
+1. Create an account at resend.com → API Keys → create key → add as
+   `RESEND_API_KEY` in Vercel (Production + Development).
+2. Until you verify a domain you can send from `onboarding@resend.dev`
+   (default) — fine for testing, not for real users.
+3. Resend → Domains → Add domain (e.g. `yourdomain.com`). Resend shows the
+   exact DNS records; add them at your DNS provider:
+   - **SPF**: TXT on the send subdomain (e.g. `send.yourdomain.com`) —
+     `v=spf1 include:amazonses.com ~all` (value shown by Resend)
+   - **DKIM**: 3 CNAME records (`resend._domainkey…`, values shown by Resend)
+   - **DMARC** (recommended): TXT at `_dmarc.yourdomain.com` —
+     `v=DMARC1; p=none; rua=mailto:you@yourdomain.com` (tighten to
+     `p=quarantine` once healthy)
+4. After the domain shows **Verified**, set
+   `RESEND_FROM_EMAIL="TattooGo <no-reply@yourdomain.com>"` and redeploy.
 
-- **Auth**: scrypt hashing, signed httpOnly session cookies, timing-safe
-  comparisons, role redirects, route guards. The *scheme* is sound.
-- **Authorization**: every mutation and read is session-scoped and
-  role-checked; IDOR attempts (foreign offer completion, cross-user reads,
-  cold-spam messaging, reading booked briefs) all rejected in the audit.
-- **Business rules**: the request → offer → accept → complete → review
-  lifecycle, duplicate-offer and double-review guards, review-after-completion
-  gate.
-- **Real-data-only UX**: no mock data anywhere; professional empty states on
-  every dashboard page; a fresh account is genuinely empty.
-- **Input validation**: field types/lengths, price bounds, JPEG magic-byte
-  checks, image size caps.
+**Email flows wired:** welcome + verify link (register), fresh verify link
+(resend), password reset, new-offer → customer, offer accepted/rejected →
+artist, job completed → customer (review invite), new message → recipient.
+All sends are post-write and fail-safe: a Resend outage can never lose an
+offer/message; failures are logged without secrets or message bodies.
 
-## Prototype-only (must change before real traffic)
+## Custom domain go-live checklist
 
-1. **Datastore is Blob JSON, not a database.** Every write serialises a whole
-   collection. Fine at demo scale; **O(n) per write** and it will not hold up
-   past low thousands of rows.
-2. **Last-writer-wins concurrency** (see below).
-3. **No email verification / password reset / rate-limited login.** Anyone can
-   register any email; there is no brute-force lockout on `/api/auth` login.
-4. **Portfolio moderation is a shared admin token** (`/moderation`), not real
-   admin accounts.
-5. **No pagination** — list endpoints return everything.
-6. **Notifications are derived on read** from offer state, not a real table;
-   there is no unread tracking or push.
-7. **`AUTH_SECRET` rotation invalidates all sessions** (no key-id/rotation
-   support).
+1. Vercel → Project `tattoo-go` → Settings → **Domains** → add
+   `yourdomain.com` (+ `www` if wanted). Vercel shows the DNS records:
+   apex `A 76.76.21.21` (or nameservers), `www` → `cname.vercel-dns.com`.
+2. Update `PUBLIC_APP_URL=https://yourdomain.com` (Production) → redeploy.
+   This fixes email verification/reset links automatically.
+3. Nothing else changes: the SPA calls `/api` relatively (no CORS), the
+   session cookie is host-only + `Secure; SameSite=Lax` (works on any
+   domain), and no app code hardcodes a domain.
 
-## Where last-writer-wins can bite
+## Neon/Postgres
 
-Each write does read-modify-write on a whole collection with no locking. If two
-writes to the **same collection** interleave, the later `put` wins and the
-earlier change is lost. Realistic cases:
+**Status:** the integration install needs a one-time marketplace-terms click
+(`https://vercel.com/ayktshnbs-projects/~/integrations/accept-terms/neon`),
+then:
 
-- Two artists send an offer on the **same** request within the same ~second →
-  one offer can vanish. (Different requests are unaffected only because they
-  still share the one `offers` collection — so really *any* two near-simultaneous
-  offers race.)
-- A customer accepts an offer while an artist sends another on the same
-  request → a status change can be lost.
+```bash
+npx vercel integration add neon      # create the database, link to project
+npx vercel env pull                  # brings DATABASE_URL into .env.local
+npm run db:init                      # applies scripts/schema.sql
+npm run db:migrate                   # optional: copies any Blob data over
+npx vercel --prod                    # redeploy — repo flips to Postgres
+```
 
-At demo/single-tester traffic this is effectively never hit. It becomes real
-the moment you have concurrent users. **The fix is the Postgres migration**, not
-a patch to the Blob layer — row-level writes and transactions remove the race
-entirely.
+Until `DATABASE_URL` exists the repo transparently uses the Blob-JSON
+fallback — the site works either way.
 
-## Migration to Postgres + managed auth
+**Schema** (`scripts/schema.sql`): `users` (roles, email_verified,
+session_epoch, lockout counters), `auth_tokens` (hashed one-time
+verify/reset tokens), `requests`, `offers` (unique per request+artist),
+`messages`, `reviews` (unique per offer), `portfolio_items`,
+`notifications`. Indexed on `customer_id`, `artist_id`, `request_id`,
+`status`, `ts` — list endpoints are LIMIT-bounded and ordered by `ts`, so
+adding cursor pagination is a WHERE clause away.
 
-The code is deliberately shaped so this is contained. What changes:
+**Atomicity:** accept/complete are single data-modifying-CTE statements
+(offer + request transition together); reviews are guarded
+`INSERT … SELECT` + unique constraint; duplicate offers blocked by
+constraint. Ownership and status gates live in the SQL `WHERE`, not just JS.
 
-**Database (replace `api/_lib/db.ts` only):**
-- Create tables mirroring the existing row interfaces: `users`, `requests`,
-  `offers`, `messages`, `reviews`, `portfolio_items`. Types already match the
-  `*Row` interfaces in `db.ts`.
-- Reimplement `readCollection`/`writeCollection` as scoped SQL, or better,
-  replace the handful of call sites with real queries
-  (`SELECT … WHERE artist_id = $1`) and transactions for accept/complete.
-- Add indexes on `customer_id`, `artist_id`, `request_id`, `status`.
-- Concurrency and pagination come for free.
+## Auth
 
-**Auth (replace `api/_lib/auth.ts` + `api/auth.ts`):**
-- Swap to **Clerk** or **Supabase Auth**. Keep `getSession(req)` /
-  `getSessionUser(req)` as the single seam every endpoint already calls — point
-  it at the provider's session instead of the HMAC cookie. Endpoints don't
-  change.
-- This also gives you email verification, password reset, OAuth, and
-  brute-force protection — the prototype gaps above.
+- **Sessions:** HMAC-SHA256-signed `{uid, role, exp, sep}` in an
+  `httpOnly; Secure; SameSite=Lax` cookie, 30-day expiry. `sep` is the
+  session epoch: a password reset bumps it, instantly invalidating every
+  outstanding session. `getSessionUser(req)` is the single seam all
+  endpoints use.
+- **Passwords:** scrypt, per-user random salt, timing-safe compare.
+- **Login rate limiting:** 5 failures → 15-minute lockout (per account);
+  correct password during lockout is also refused (429).
+- **No enumeration:** login returns one generic error for unknown email and
+  wrong password; `request-reset` always answers generic 200. (Registration
+  still returns 409 on duplicate email — deliberate UX trade-off, see
+  limitations.)
+- **Email verification:** register → 24h one-time token (stored hashed) →
+  `/verify-email?token=…`. Soft-gate: unverified users can use the app;
+  status shows on the profile with a resend button. Hard-gating publish
+  actions is a one-line check when wanted.
+- **Password reset:** `/forgot-password` → 1h one-time hashed token →
+  `/reset-password?token=…` → new password + epoch bump + cookie cleared.
+- **Roles:** customer → `/dashboard`, artist/studio → `/studio`, enforced by
+  client guards AND server-side scoping on every endpoint.
 
-**Frontend:** none. `src/lib/api.ts`, `AuthContext`, and the guards consume the
-same JSON contracts; only `AuthContext.refresh()`/login wiring would point at
-the provider if you use its SDK directly.
+## What still uses Vercel Blob
 
-**Also add at that point:** login rate limiting, real admin accounts for
-moderation, and an image content-moderation pass on uploads.
+Files only (by design): `uploads/<id>.jpg` (portfolio), `references/<id>.jpg`
+(request references). Postgres stores the URLs. *(Exception: until
+`DATABASE_URL` is set, the fallback also keeps records in versioned Blob
+JSON under `db/` and `feed/`.)*
+
+## Known limitations / production risks
+
+- **Blob-fallback mode** (until Neon is connected): last-writer-wins on
+  concurrent writes to a collection; O(n) writes. Fixed by the Postgres flip.
+- **Registration enumeration:** duplicate email → 409.
+- **Email throughput:** every message sends an email — no digesting/
+  throttling yet; a chatty thread means many emails.
+- **Rate limiting is per-account, not per-IP** (serverless has no shared
+  memory; IP-based needs the DB — easy follow-up after the Postgres flip).
+- **Moderation** is a single shared admin token, not admin accounts.
+- **No pagination UI** — endpoints are LIMIT-bounded (200) and index-backed.
+- **HTTP driver:** repo uses single-statement atomicity (CTEs); if a future
+  flow needs a multi-statement interactive transaction, switch that call to
+  the Neon Pool/WebSocket client.
+- **Payments:** deliberately absent — decision pending (no Stripe, no
+  payouts, no commission logic anywhere).
+
+## Test accounts
+
+None — the datastore was wiped after the launch audit. Register fresh
+accounts via `/register`.

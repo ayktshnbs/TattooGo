@@ -6,7 +6,7 @@ import { RequireCustomer, RequireArtist } from './auth/Guard';
 
 import { Landing } from './pages/Landing';
 import { Moderation } from './pages/Moderation';
-import { HowItWorks, BrowseArtists, BrowseDesigns, Categories, Login, Register, FAQ, About, Contact, Terms } from './pages/Public';
+import { HowItWorks, BrowseArtists, BrowseDesigns, Categories, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, FAQ, About, Contact, Terms } from './pages/Public';
 import { CustomerHome, CreateRequest, MyRequests, OffersReceived, CustomerMessages, CustomerNotifications, CustomerFavorites, CustomerAppointments, CustomerTracking, CustomerReviews, CustomerProfile } from './pages/customer/Customer';
 import { StudioHome, MyTattoos, AddTattoo, GiveOffer, MyOffers, StudioTracking, StudioCalendar, StudioCampaigns, StudioArtists, StudioMaterials, StudioReviews, StudioMessages, StudioNotifications, StudioStats, StudioProfile } from './pages/studio/Studio';
 
@@ -35,6 +35,9 @@ export default function App() {
             <Route path="/categories" element={<Categories />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/faq" element={<FAQ />} />
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />

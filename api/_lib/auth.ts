@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { readCollection, type UserRow } from './db.js';
+import type { UserRow } from './db.js';
+import { getUserById } from './repo.js';
 
 /**
  * Session auth for the prototype — no external provider required.
@@ -22,6 +23,9 @@ export interface Session {
   uid: string;
   role: 'customer' | 'artist' | 'studio';
   exp: number;
+  /** Session epoch — must match the user row. A password reset bumps the
+   *  user's epoch, which invalidates every previously issued session. */
+  sep: number;
 }
 
 /* ---------- passwords ---------- */
@@ -44,8 +48,8 @@ function b64url(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-export function signSession(uid: string, role: Session['role']): string {
-  const payload: Session = { uid, role, exp: Date.now() + SESSION_DAYS * 86_400_000 };
+export function signSession(uid: string, role: Session['role'], sessionEpoch = 0): string {
+  const payload: Session = { uid, role, exp: Date.now() + SESSION_DAYS * 86_400_000, sep: sessionEpoch };
   const body = b64url(Buffer.from(JSON.stringify(payload)));
   const sig = b64url(createHmac('sha256', SECRET).update(body).digest());
   return `${body}.${sig}`;
@@ -85,12 +89,16 @@ export function getSession(req: VercelRequest): Session | null {
   return verifySessionToken(req.cookies?.[COOKIE] ?? '');
 }
 
-/** Load the full user row for the current session (null when logged out). */
+/** Load the full user row for the current session (null when logged out).
+ *  The single auth seam every endpoint uses. Rejects sessions whose epoch no
+ *  longer matches the user row (i.e. issued before a password reset). */
 export async function getSessionUser(req: VercelRequest): Promise<UserRow | null> {
   const session = getSession(req);
   if (!session) return null;
-  const users = await readCollection<UserRow>('users');
-  return users.find(u => u.id === session.uid) ?? null;
+  const user = await getUserById(session.uid);
+  if (!user) return null;
+  if ((session.sep ?? 0) !== (user.sessionEpoch ?? 0)) return null;
+  return user;
 }
 
 /** Public projection of a user row — never leaks hash/salt/email to others. */
@@ -99,5 +107,5 @@ export function publicUser(u: UserRow) {
 }
 
 export function ownUser(u: UserRow) {
-  return { ...publicUser(u), email: u.email };
+  return { ...publicUser(u), email: u.email, emailVerified: u.emailVerified ?? false };
 }

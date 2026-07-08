@@ -1,17 +1,34 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { readCollection, writeCollection, newId, today, type UserRow } from './_lib/db.js';
-import { hashPassword, verifyPassword, signSession, setSessionCookie, clearSessionCookie, getSessionUser, ownUser } from './_lib/auth.js';
+import { newId, today, type UserRow } from './_lib/db.js';
+import {
+  hashPassword, verifyPassword, signSession, setSessionCookie, clearSessionCookie,
+  getSessionUser, ownUser,
+} from './_lib/auth.js';
+import {
+  findUserByEmail, createUser, setEmailVerified, setPassword,
+  recordLoginFailure, clearLoginFailures, isLocked, createToken, consumeToken,
+} from './_lib/repo.js';
+import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 
 /**
  * Authentication.
- *   GET  /api/auth            → current user (or 401)
- *   POST /api/auth {action: 'register', email, password, name, role, city?, bio?, styles?}
- *   POST /api/auth {action: 'login', email, password}
- *   POST /api/auth {action: 'logout'}
+ *   GET  /api/auth → current user (or 401)
+ *   POST /api/auth {action: 'register' | 'login' | 'logout'
+ *                 | 'verify-email' {token}
+ *                 | 'resend-verification'
+ *                 | 'request-reset' {email}      — always generic 200
+ *                 | 'reset-password' {token, password}}
+ *
+ * Protections: scrypt hashing, per-account lockout (5 fails → 15 min),
+ * one-time hashed tokens (verify 24h / reset 1h), session-epoch bump on
+ * password reset (kills all existing sessions), generic login/reset errors.
+ * Email sends never block or fail the underlying action.
  */
 
 const ROLES = new Set(['customer', 'artist', 'studio']);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const VERIFY_TTL = 24 * 60 * 60 * 1000;
+const RESET_TTL = 60 * 60 * 1000;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
@@ -48,16 +65,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'role must be customer, artist or studio' });
       }
 
-      const users = await readCollection<UserRow>('users');
-      const emailLc = email.toLowerCase().trim();
-      if (users.some(u => u.email === emailLc)) {
-        return res.status(409).json({ error: 'an account with this email already exists' });
-      }
-
       const { salt, passHash } = hashPassword(password);
       const user: UserRow = {
         id: newId('usr'),
-        email: emailLc,
+        email: email.toLowerCase().trim(),
         name: name.trim(),
         role: role as UserRow['role'],
         city: typeof city === 'string' && city.trim() ? city.trim().slice(0, 60) : undefined,
@@ -65,10 +76,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         styles: Array.isArray(styles) ? styles.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined,
         passHash,
         salt,
+        emailVerified: false,
+        sessionEpoch: 0,
         createdAt: today(),
       };
-      await writeCollection('users', [...users, user]);
-      setSessionCookie(res, signSession(user.id, user.role));
+      const created = await createUser(user);
+      if (!created) return res.status(409).json({ error: 'an account with this email already exists' });
+
+      const token = await createToken(user.id, 'verify', VERIFY_TTL);
+      await welcomeVerifyEmail(user.email, user.name, token); // never throws
+      setSessionCookie(res, signSession(user.id, user.role, 0));
       return res.status(201).json(ownUser(user));
     }
 
@@ -77,13 +94,65 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof email !== 'string' || typeof password !== 'string') {
         return res.status(400).json({ error: 'email and password required' });
       }
-      const users = await readCollection<UserRow>('users');
-      const user = users.find(u => u.email === email.toLowerCase().trim());
-      if (!user || !verifyPassword(password, user.salt, user.passHash)) {
+      const user = await findUserByEmail(email);
+      // Identical error for unknown email and wrong password — no enumeration.
+      if (!user) return res.status(401).json({ error: 'invalid email or password' });
+      if (isLocked(user)) {
+        return res.status(429).json({ error: 'too many attempts — try again in a few minutes' });
+      }
+      if (!verifyPassword(password, user.salt, user.passHash)) {
+        await recordLoginFailure(user.id);
         return res.status(401).json({ error: 'invalid email or password' });
       }
-      setSessionCookie(res, signSession(user.id, user.role));
+      await clearLoginFailures(user.id);
+      setSessionCookie(res, signSession(user.id, user.role, user.sessionEpoch ?? 0));
       return res.status(200).json(ownUser(user));
+    }
+
+    if (action === 'verify-email') {
+      const { token } = req.body ?? {};
+      if (typeof token !== 'string' || !token) return res.status(400).json({ error: 'token required' });
+      const userId = await consumeToken(token, 'verify');
+      if (!userId) return res.status(400).json({ error: 'link is invalid or expired' });
+      await setEmailVerified(userId);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'resend-verification') {
+      const user = await getSessionUser(req);
+      if (!user) return res.status(401).json({ error: 'sign in required' });
+      if (user.emailVerified) return res.status(200).json({ ok: true, already: true });
+      const token = await createToken(user.id, 'verify', VERIFY_TTL);
+      await verifyEmailAgain(user.email, user.name, token);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'request-reset') {
+      const { email } = req.body ?? {};
+      if (typeof email !== 'string' || !EMAIL_RE.test(email)) {
+        return res.status(400).json({ error: 'valid email required' });
+      }
+      const user = await findUserByEmail(email);
+      if (user) {
+        const token = await createToken(user.id, 'reset', RESET_TTL);
+        await passwordResetEmail(user.email, user.name, token);
+      }
+      // Same response whether or not the account exists — no enumeration.
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'reset-password') {
+      const { token, password } = req.body ?? {};
+      if (typeof token !== 'string' || !token) return res.status(400).json({ error: 'token required' });
+      if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+        return res.status(400).json({ error: 'password must be at least 8 characters' });
+      }
+      const userId = await consumeToken(token, 'reset');
+      if (!userId) return res.status(400).json({ error: 'link is invalid or expired' });
+      const { salt, passHash } = hashPassword(password);
+      await setPassword(userId, passHash, salt); // bumps session epoch → all sessions out
+      clearSessionCookie(res);
+      return res.status(200).json({ ok: true });
     }
 
     return res.status(400).json({ error: 'unknown action' });

@@ -39,6 +39,7 @@ export interface Me {
   city?: string;
   bio?: string;
   styles?: string[];
+  emailVerified?: boolean;
   createdAt: string;
 }
 
@@ -49,6 +50,29 @@ export const auth = {
   login: (email: string, password: string) =>
     call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'login', email, password }) }),
   logout: () => call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'logout' }) }),
+  verifyEmail: (token: string) =>
+    call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'verify-email', token }) }),
+  resendVerification: () =>
+    call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'resend-verification' }) }),
+  requestReset: (email: string) =>
+    call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'request-reset', email }) }),
+  resetPassword: (token: string, password: string) =>
+    call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'reset-password', token, password }) }),
+};
+
+/* ---------- notifications ---------- */
+
+export interface ApiNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  read: boolean;
+  ts: number;
+}
+
+export const notifications = {
+  list: () => call<ApiNotification[]>('/api/notifications'),
 };
 
 /* ---------- requests ---------- */

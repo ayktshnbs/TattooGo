@@ -216,6 +216,9 @@ export function Login() {
             <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? '…' : (lang === 'tr' ? 'Giriş yap' : 'Sign in')}</button>
             <Link to="/register" className="btn btn-ghost">{lang === 'tr' ? 'Hesap oluştur' : 'Create account'}</Link>
           </div>
+          <Link to="/forgot-password" className="mono text-muted" style={{ textDecoration: 'underline' }}>
+            {lang === 'tr' ? 'Şifrenizi mi unuttunuz?' : 'Forgot your password?'}
+          </Link>
         </form>
         <div className="col gap-3">
           <span className="mono text-muted">{lang === 'tr' ? 'Yeni misiniz?' : 'New here?'}</span>
@@ -308,6 +311,135 @@ export function Register() {
           <Link to="/login" className="btn btn-ghost">{lang === 'tr' ? 'Zaten hesabım var' : 'I have an account'}</Link>
         </div>
       </form>
+    </Page>
+  );
+}
+
+/* ---------- Forgot / reset password + email verification ---------- */
+export function ForgotPassword() {
+  const { lang } = useLang();
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Page num="05" eyebrow={lang === 'tr' ? 'Şifre' : 'Password'} title={lang === 'tr' ? 'Şifre' : 'Reset your'} italic={lang === 'tr' ? 'sıfırlama.' : 'password.'}>
+      {sent ? (
+        <div className="col gap-3" style={{ maxWidth: 520 }}>
+          <p className="display display-md" style={{ margin: 0 }}>
+            {lang === 'tr' ? 'E-postanızı kontrol edin.' : 'Check your inbox.'}
+          </p>
+          <p className="text-muted" style={{ margin: 0 }}>
+            {lang === 'tr'
+              ? 'Bu adrese kayıtlı bir hesap varsa, bir saat geçerli bir sıfırlama bağlantısı gönderdik.'
+              : 'If an account exists for that address, we sent a reset link valid for one hour.'}
+          </p>
+          <Link to="/login" className="btn btn-ghost" style={{ alignSelf: 'flex-start' }}>{lang === 'tr' ? 'Girişe dön' : 'Back to sign in'}</Link>
+        </div>
+      ) : (
+        <form
+          className="col gap-4"
+          style={{ maxWidth: 460 }}
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setBusy(true);
+            try { await auth.requestReset(email); } catch { /* generic on purpose */ }
+            setBusy(false);
+            setSent(true);
+          }}
+        >
+          <p className="text-muted" style={{ margin: 0 }}>
+            {lang === 'tr' ? 'Hesabınızın e-posta adresini girin; size bir sıfırlama bağlantısı gönderelim.' : 'Enter your account email and we will send you a reset link.'}
+          </p>
+          <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
+          <button className="btn btn-primary" type="submit" disabled={busy || !email}>{busy ? '…' : (lang === 'tr' ? 'Bağlantı gönder' : 'Send reset link')}</button>
+        </form>
+      )}
+    </Page>
+  );
+}
+
+export function ResetPassword() {
+  const { lang } = useLang();
+  const navigate = useNavigate();
+  const token = new URLSearchParams(window.location.search).get('token') ?? '';
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Page num="05" eyebrow={lang === 'tr' ? 'Şifre' : 'Password'} title={lang === 'tr' ? 'Yeni şifre' : 'Choose a new'} italic={lang === 'tr' ? 'belirleyin.' : 'password.'}>
+      {done ? (
+        <div className="col gap-3" style={{ maxWidth: 520 }}>
+          <p className="display display-md" style={{ margin: 0 }}>{lang === 'tr' ? 'Şifreniz güncellendi.' : 'Password updated.'}</p>
+          <p className="text-muted" style={{ margin: 0 }}>
+            {lang === 'tr' ? 'Güvenlik için tüm oturumlar kapatıldı. Yeni şifrenizle giriş yapın.' : 'All sessions were signed out for safety. Sign in with your new password.'}
+          </p>
+          <button className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => navigate('/login')}>{lang === 'tr' ? 'Giriş yap' : 'Sign in'}</button>
+        </div>
+      ) : (
+        <form
+          className="col gap-4"
+          style={{ maxWidth: 460 }}
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (password !== confirm) { setError(lang === 'tr' ? 'Şifreler eşleşmiyor.' : 'Passwords do not match.'); return; }
+            setBusy(true); setError('');
+            try {
+              await auth.resetPassword(token, password);
+              setDone(true);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'failed');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {!token && <span className="mono">⚠ {lang === 'tr' ? 'Sıfırlama bağlantısı eksik veya bozuk.' : 'The reset link is missing or malformed.'}</span>}
+          {error && <span className="mono">⚠ {error}</span>}
+          <Field label={lang === 'tr' ? 'Yeni şifre (en az 8 karakter)' : 'New password (min 8 characters)'}>
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
+          </Field>
+          <Field label={lang === 'tr' ? 'Yeni şifre (tekrar)' : 'New password (again)'}>
+            <Input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} required minLength={8} />
+          </Field>
+          <button className="btn btn-primary" type="submit" disabled={busy || !token}>{busy ? '…' : (lang === 'tr' ? 'Şifreyi güncelle' : 'Update password')}</button>
+        </form>
+      )}
+    </Page>
+  );
+}
+
+export function VerifyEmail() {
+  const { lang } = useLang();
+  const { refresh } = useAuth();
+  const token = new URLSearchParams(window.location.search).get('token') ?? '';
+  const [state, setState] = useState<'working' | 'ok' | 'bad'>('working');
+  useEffect(() => {
+    if (!token) { setState('bad'); return; }
+    auth.verifyEmail(token).then(() => { setState('ok'); refresh(); }).catch(() => setState('bad'));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+  return (
+    <Page num="06" eyebrow={lang === 'tr' ? 'Doğrulama' : 'Verification'} title="Email" italic={lang === 'tr' ? 'doğrulama.' : 'verification.'}>
+      <div className="col gap-3" style={{ maxWidth: 520 }}>
+        {state === 'working' && <p className="text-muted">{lang === 'tr' ? 'Doğrulanıyor…' : 'Verifying…'}</p>}
+        {state === 'ok' && (
+          <>
+            <p className="display display-md" style={{ margin: 0 }}>✓ {lang === 'tr' ? 'E-posta doğrulandı.' : 'Email verified.'}</p>
+            <Link to="/" className="btn btn-primary" style={{ alignSelf: 'flex-start' }}>{lang === 'tr' ? 'Ana sayfa' : 'Go home'}</Link>
+          </>
+        )}
+        {state === 'bad' && (
+          <>
+            <p className="display display-md" style={{ margin: 0 }}>{lang === 'tr' ? 'Bağlantı geçersiz veya süresi dolmuş.' : 'This link is invalid or expired.'}</p>
+            <p className="text-muted" style={{ margin: 0 }}>
+              {lang === 'tr' ? 'Giriş yaptıktan sonra profilinizden yeni bir doğrulama e-postası isteyebilirsiniz.' : 'Sign in and request a fresh verification email from your profile.'}
+            </p>
+            <Link to="/login" className="btn btn-ghost" style={{ alignSelf: 'flex-start' }}>{lang === 'tr' ? 'Giriş yap' : 'Sign in'}</Link>
+          </>
+        )}
+      </div>
     </Page>
   );
 }

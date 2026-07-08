@@ -10,8 +10,8 @@ import { useReveal } from '../../hooks/useReveal';
 import { STYLES, CITIES } from '../../data/mock';
 import { fileToUpload } from '../../data/uploads';
 import {
-  dashboard, requests, offers, messages, reviews,
-  type ApiRequest, type ApiOffer, type ApiThread, type ApiMessage, type ApiReview, type CustomerDashboard,
+  dashboard, requests, offers, messages, reviews, notifications, auth as authApi,
+  type ApiRequest, type ApiOffer, type ApiMessage, type CustomerDashboard,
 } from '../../lib/api';
 
 /**
@@ -377,26 +377,30 @@ export function MessagesPage({ scope }: { scope: 'customer' | 'studio' }) {
   );
 }
 
-/* ---------- Notifications (derived from real offers) ---------- */
+/* ---------- Notifications (real events from the API) ---------- */
 export function CustomerNotifications() {
+  return <NotificationsPage scope="customer" />;
+}
+
+export function NotificationsPage({ scope }: { scope: 'customer' | 'studio' }) {
   useReveal();
   const { lang } = useLang();
-  const { data, error } = useLoad(() => offers.list());
-  const events = (data ?? []).filter(o => o.status !== 'sent').slice(0, 20);
+  const { data, error } = useLoad(() => notifications.list());
   return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
+    <DashboardLayout scope={scope} title={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
       {error && <ErrorNote message={error} />}
       {!data && !error && <Loading />}
-      {data && (events.length === 0 ? (
-        <Empty title={lang === 'tr' ? 'Bildirim yok' : 'Nothing yet'} body={lang === 'tr' ? 'Teklif hareketleri burada görünür.' : 'Offer activity shows up here.'} />
+      {data && (data.length === 0 ? (
+        <Empty title={lang === 'tr' ? 'Bildirim yok' : 'Nothing yet'} body={lang === 'tr' ? 'Teklif ve mesaj hareketleri burada görünür.' : 'Offer and message activity shows up here.'} />
       ) : (
         <div className="col" style={{ border: '1px solid var(--hairline)' }}>
-          {events.map(o => (
-            <div key={o.id} className="row between center" style={{ padding: 16, borderBottom: '1px solid var(--hairline)' }}>
-              <span style={{ fontSize: 14 }}>
-                {o.artistName} — {o.requestTitle}
-              </span>
-              <span className="tag tag-soft">{STATUS_LABEL[o.status]?.[lang as 'en' | 'tr'] ?? o.status}</span>
+          {data.map(n => (
+            <div key={n.id} className="row between center" style={{ padding: 16, borderBottom: '1px solid var(--hairline)', gap: 16 }}>
+              <div className="col gap-1" style={{ minWidth: 0 }}>
+                <strong style={{ fontSize: 14 }}>{n.title}</strong>
+                <span className="text-muted" style={{ fontSize: 13 }}>{n.body}</span>
+              </div>
+              <span className="tag tag-soft" style={{ flexShrink: 0 }}>{n.kind}</span>
             </div>
           ))}
         </div>
@@ -563,6 +567,27 @@ export function CustomerReviews() {
 }
 
 /* ---------- Profile ---------- */
+export function VerificationRow() {
+  const { lang } = useLang();
+  const { user } = useAuth();
+  const [sent, setSent] = useState(false);
+  if (!user) return null;
+  return (
+    <div className="row between center">
+      <span className="mono text-muted">{lang === 'tr' ? 'E-posta durumu' : 'Email status'}</span>
+      {user.emailVerified ? (
+        <span className="tag tag-soft">✓ {lang === 'tr' ? 'Doğrulandı' : 'Verified'}</span>
+      ) : sent ? (
+        <span className="mono text-muted">{lang === 'tr' ? 'Gönderildi — gelen kutunuza bakın' : 'Sent — check your inbox'}</span>
+      ) : (
+        <button className="btn btn-sm" onClick={async () => { try { await authApi.resendVerification(); } catch { /* soft */ } setSent(true); }}>
+          {lang === 'tr' ? 'Doğrulama e-postası gönder' : 'Send verification email'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function CustomerProfile() {
   useReveal();
   const { lang } = useLang();
@@ -578,6 +603,7 @@ export function CustomerProfile() {
           <span className="mono text-muted">Email</span>
           <span>{user?.email}</span>
         </div>
+        <VerificationRow />
         <div className="row between center">
           <span className="mono text-muted">{lang === 'tr' ? 'Şehir' : 'City'}</span>
           <span>{user?.city ?? '—'}</span>
