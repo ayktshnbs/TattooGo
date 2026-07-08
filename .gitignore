@@ -6,3 +6,7 @@ dist/
 
 .vercel
 .env*
+
+vite.config.js
+vite.config.d.ts
+*.tsbuildinfo

@@ -19,6 +19,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...(init?.headers ?? {}) },
     ...init,
   });
+  // A dev server without the API answers /api/* with the SPA's HTML page and
+  // status 200 — treating that as success once crashed the dashboards blank.
+  // Only a JSON response counts; anything else is a hard error.
+  const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
+  if (!isJson) throw new ApiError(res.status, 'API unavailable — run the deployed site or the dev proxy');
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `HTTP ${res.status}`);
   return data as T;
