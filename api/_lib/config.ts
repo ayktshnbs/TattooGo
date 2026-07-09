@@ -3,8 +3,12 @@
  * custom-domain ready: no URL is hardcoded anywhere in app logic.
  */
 
-/** Public origin used in emails and redirects (no trailing slash). */
-export const APP_URL = (process.env.PUBLIC_APP_URL ?? 'https://tattoo-go.vercel.app').replace(/\/$/, '');
+/** Public origin used in emails and redirects (no trailing slash).
+ *  Reads APP_URL or PUBLIC_APP_URL; empty strings are treated as unset so a
+ *  misconfigured env can never produce broken relative links in emails. */
+export const APP_URL = (
+  process.env.APP_URL || process.env.PUBLIC_APP_URL || 'https://tattoo-go.vercel.app'
+).replace(/\/$/, '');
 
 /** Sender for transactional email. `onboarding@resend.dev` works before a
  *  custom domain is verified in Resend; switch via RESEND_FROM_EMAIL. */
