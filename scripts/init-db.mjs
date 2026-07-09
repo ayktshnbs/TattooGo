@@ -25,11 +25,17 @@ if (!url) {
 }
 
 const sql = neon(url);
-const schema = readFileSync(join(here, 'schema.sql'), 'utf8');
+const rawSchema = readFileSync(join(here, 'schema.sql'), 'utf8');
+// Strip full-line SQL comments first so a comment preceding a statement can
+// never cause that statement to be dropped, then split on statement boundaries.
+const schema = rawSchema
+  .split('\n')
+  .map(line => line.replace(/--.*$/, ''))
+  .join('\n');
 const statements = schema
-  .split(/;\s*\n/)
+  .split(';')
   .map(s => s.trim())
-  .filter(s => s.length > 0 && !s.startsWith('--'));
+  .filter(s => s.length > 0);
 
 for (const stmt of statements) {
   await sql.query(stmt);
