@@ -1,46 +1,31 @@
-import { APP_URL, FROM_EMAIL, RESEND_API_KEY } from './config.js';
+import { APP_URL } from './config.js';
+import { deliver, isConfigured, EmailDeliveryError, type OutgoingEmail } from './email-provider.js';
 
 /**
- * Transactional email via Resend — server-side only, fail-safe by design.
+ * Transactional email — templates + fail-safe SENDING POLICY. This module is
+ * provider-agnostic: it never names a vendor. The actual transport lives in
+ * email-provider.ts (swap that one file to change providers).
  *
- * Every send goes through notify(), which NEVER throws: if RESEND_API_KEY is
- * missing the send is skipped with a log line, and if Resend errors the
+ * Every send goes through notify(), which NEVER throws: if no provider is
+ * configured the send is skipped with a log line; if delivery errors, the
  * marketplace action that triggered it still succeeds. Errors are logged
- * without bodies or secrets.
+ * without recipients, bodies, or secrets.
  */
 
-interface Mail {
-  to: string;
-  subject: string;
-  html: string;
-}
-
-async function send(mail: Mail): Promise<void> {
-  if (!RESEND_API_KEY) {
-    console.log(`email skipped (RESEND_API_KEY not set): "${mail.subject}"`);
+/** Fire-and-forget wrapper: awaitable, but never throws into the caller. */
+export async function notify(mail: OutgoingEmail): Promise<void> {
+  if (!isConfigured()) {
+    console.log(`email skipped (provider not configured): "${mail.subject}"`);
     return;
   }
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ from: FROM_EMAIL, to: [mail.to], subject: mail.subject, html: mail.html }),
-  });
-  if (!res.ok) {
-    // Log status + Resend error name only — never the recipient list or body.
-    const detail = await res.json().catch(() => ({}));
-    console.error(`email send failed: HTTP ${res.status} ${(detail as { name?: string }).name ?? ''} "${mail.subject}"`);
-  }
-}
-
-/** Fire-and-forget wrapper: awaitable, but never throws into the caller. */
-export async function notify(mail: Mail): Promise<void> {
   try {
-    await send(mail);
+    await deliver(mail);
   } catch (err) {
-    console.error(`email send crashed: "${mail.subject}"`, err instanceof Error ? err.message : '');
+    if (err instanceof EmailDeliveryError) {
+      console.error(`email send failed: HTTP ${err.status} ${err.vendorCode ?? ''} "${mail.subject}"`);
+    } else {
+      console.error(`email send crashed: "${mail.subject}"`, err instanceof Error ? err.message : '');
+    }
   }
 }
 
