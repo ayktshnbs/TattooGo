@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { SectionHeader } from '../components/SectionHeader';
 import { Field, Input, Select, Textarea, ChoiceGroup } from '../components/Form';
 import { Empty, Loading } from '../components/Empty';
 import { STYLES, CITIES } from '../data/mock';
-import { auth, artists as artistsApi, type ApiArtist, type ApiPortfolioItem } from '../lib/api';
+import { auth, artists as artistsApi, type ApiArtist, type ApiArtistProfile, type ApiPortfolioItem } from '../lib/api';
 import { useAuth, isArtistRole } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
@@ -93,26 +93,151 @@ export function BrowseArtists() {
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
           {filtered.map(a => (
-            <article key={a.id} className="card card-pad col gap-3">
-              <div className="row center gap-3">
-                <AvatarBubble name={a.name} size={44} />
-                <div className="col">
-                  <strong>{a.name}</strong>
-                  <span className="mono text-muted" style={{ fontSize: 11 }}>
-                    {a.role === 'studio' ? 'Studio' : 'Artist'}{a.city ? ` · ${a.city}` : ''}
-                  </span>
+            <Link key={a.id} to={`/artists/${a.id}`} style={{ display: 'block' }}>
+              <article className="card card-pad col gap-3 card-lift" style={{ height: '100%' }}>
+                <div className="row center gap-3">
+                  <AvatarBubble name={a.name} size={44} />
+                  <div className="col">
+                    <strong>{a.name}</strong>
+                    <span className="mono text-muted" style={{ fontSize: 11 }}>
+                      {a.role === 'studio' ? 'Studio' : 'Artist'}{a.city ? ` · ${a.city}` : ''}
+                    </span>
+                  </div>
                 </div>
-              </div>
-              {a.bio && <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{a.bio}</p>}
-              <div className="row between center">
-                <span className="mono text-muted" style={{ fontSize: 11 }}>{(a.styles ?? []).join(' · ') || '—'}</span>
-                <span className="mono">{a.rating != null ? `★ ${a.rating} (${a.reviewCount})` : (lang === 'tr' ? 'Yeni' : 'New')}</span>
-              </div>
-            </article>
+                {a.bio && <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{a.bio}</p>}
+                <div className="row between center">
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{(a.styles ?? []).join(' · ') || '—'}</span>
+                  <span className="mono">{a.rating != null ? `★ ${a.rating} (${a.reviewCount})` : (lang === 'tr' ? 'Yeni' : 'New')}</span>
+                </div>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{lang === 'tr' ? 'Profili gör →' : 'View profile →'}</span>
+              </article>
+            </Link>
           ))}
         </div>
       )}
     </Page>
+  );
+}
+
+/* ---------- Public artist / studio profile ---------- */
+export function ArtistPublicProfile() {
+  const { lang } = useLang();
+  const { artistId } = useParams<{ artistId: string }>();
+  const [data, setData] = useState<ApiArtistProfile | null>(null);
+  const [state, setState] = useState<'loading' | 'ok' | 'missing' | 'error'>('loading');
+  useEffect(() => {
+    if (!artistId) { setState('missing'); return; }
+    artistsApi.get(artistId)
+      .then(d => { setData(d); setState('ok'); })
+      .catch(err => setState(err instanceof Error && /404|not found/i.test(err.message) ? 'missing' : 'error'));
+  }, [artistId]);
+
+  return (
+    <>
+      <Header />
+      <div style={{ paddingTop: 120 }}>
+        <section className="section-tight">
+          <div className="container">
+            {state === 'loading' && <Loading />}
+            {state === 'missing' && (
+              <Empty
+                title={lang === 'tr' ? 'Sanatçı bulunamadı' : 'Artist not found'}
+                body={lang === 'tr' ? 'Bu profil kaldırılmış veya hiç var olmamış olabilir.' : 'This profile may have been removed or never existed.'}
+                cta={lang === 'tr' ? 'Sanatçılara dön' : 'Back to artists'}
+                to="/artists"
+              />
+            )}
+            {state === 'error' && (
+              <Empty title={lang === 'tr' ? 'Bir şeyler ters gitti' : 'Something went wrong'} body={lang === 'tr' ? 'Profil yüklenemedi — tekrar deneyin.' : 'The profile could not be loaded — try again.'} />
+            )}
+            {state === 'ok' && data && (
+              <>
+                {/* Identity header — public info only */}
+                <div className="row between" style={{ gap: 32, flexWrap: 'wrap', borderBottom: '1px solid var(--hairline)', paddingBottom: 40 }}>
+                  <div className="row gap-4" style={{ alignItems: 'center' }}>
+                    <AvatarBubble name={data.profile.name} size={72} />
+                    <div className="col gap-1">
+                      <span className="mono text-muted">
+                        {data.profile.role === 'studio' ? (lang === 'tr' ? 'Stüdyo' : 'Studio') : (lang === 'tr' ? 'Sanatçı' : 'Artist')}
+                        {data.profile.city ? ` · ${data.profile.city}` : ''}
+                      </span>
+                      <h1 className="display" style={{ margin: 0, fontSize: 'clamp(32px, 5vw, 56px)', lineHeight: 1 }}>{data.profile.name}</h1>
+                      {(data.profile.styles ?? []).length > 0 && (
+                        <span className="mono text-muted" style={{ fontSize: 11 }}>{(data.profile.styles ?? []).join(' · ')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="row gap-5 center" style={{ alignItems: 'center' }}>
+                    <div className="col center-text">
+                      <span className="display" style={{ fontSize: 30 }}>{data.profile.rating != null ? `★ ${data.profile.rating}` : '—'}</span>
+                      <span className="mono text-muted" style={{ fontSize: 10 }}>{data.profile.reviewCount} {lang === 'tr' ? 'yorum' : 'reviews'}</span>
+                    </div>
+                    <div className="col center-text">
+                      <span className="display" style={{ fontSize: 30 }}>{data.profile.completedJobs}</span>
+                      <span className="mono text-muted" style={{ fontSize: 10 }}>{lang === 'tr' ? 'tamamlanan iş' : 'completed jobs'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {data.profile.bio && (
+                  <p className="text-muted" style={{ maxWidth: 640, fontSize: 15, margin: '28px 0 0' }}>{data.profile.bio}</p>
+                )}
+
+                {/* Portfolio — approved items only (server-enforced) */}
+                <div className="row between center" style={{ margin: '56px 0 20px', borderBottom: '1px solid var(--hairline)', paddingBottom: 10 }}>
+                  <span className="mono text-muted">{lang === 'tr' ? 'Portföy' : 'Portfolio'}</span>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{data.portfolio.length}</span>
+                </div>
+                {data.portfolio.length === 0 ? (
+                  <Empty
+                    title={lang === 'tr' ? 'Henüz yayınlanmış çalışma yok' : 'No published work yet'}
+                    body={lang === 'tr' ? 'Bu sanatçı ilk çalışmasını paylaştığında burada görünecek.' : 'When this artist publishes their first piece, it appears here.'}
+                  />
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 20 }}>
+                    {data.portfolio.map(p => (
+                      <article key={p.id} className="card" style={{ overflow: 'hidden' }}>
+                        <img src={p.imageUrl} alt={p.title} loading="lazy" style={{ width: '100%', aspectRatio: p.imageRatio || 1, objectFit: 'cover', display: 'block' }} />
+                        <div className="card-pad col gap-1">
+                          <strong style={{ fontSize: 14 }}>{p.title}</strong>
+                          <span className="mono text-muted" style={{ fontSize: 10 }}>{p.style}{p.tags.length ? ` · ${p.tags.slice(0, 3).join(' · ')}` : ''}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+
+                {/* Public reviews */}
+                <div className="row between center" style={{ margin: '56px 0 20px', borderBottom: '1px solid var(--hairline)', paddingBottom: 10 }}>
+                  <span className="mono text-muted">{lang === 'tr' ? 'Yorumlar' : 'Reviews'}</span>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{data.reviews.length}</span>
+                </div>
+                {data.reviews.length === 0 ? (
+                  <Empty
+                    title={lang === 'tr' ? 'Henüz yorum yok' : 'No reviews yet'}
+                    body={lang === 'tr' ? 'Yorumlar yalnızca tamamlanmış işlerden gelir.' : 'Reviews only come from completed jobs.'}
+                  />
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+                    {data.reviews.map(r => (
+                      <article key={r.id} className="card card-pad col gap-2">
+                        <div className="row between center">
+                          <strong style={{ fontSize: 14 }}>{r.customerName}</strong>
+                          <span className="mono">{'★'.repeat(r.rating)}</span>
+                        </div>
+                        <span className="mono text-muted" style={{ fontSize: 10 }}>{r.requestTitle} · {r.createdAt}</span>
+                        <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.text}</p>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </section>
+      </div>
+      <Footer />
+    </>
   );
 }
 

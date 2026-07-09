@@ -152,6 +152,31 @@ JSON under `db/` and `feed/`.)*
   chosen provider for a future phase — to be integrated only after a formal
   agreement — and is recorded here as a plan, nothing more.
 
+## Public visibility rules
+
+| Surface | Endpoint | Who can read | What is exposed |
+| --- | --- | --- | --- |
+| Artist directory | `GET /api/artists` | anyone | name, role, city, styles, bio, rating aggregate |
+| **Artist public profile** | `GET /api/artists?id=<id>` | anyone | profile summary + rating + review count + **completed-jobs count** + **approved** portfolio only + public reviews. **404 for customer ids** (not enumerable) |
+| Public tattoo feed | `GET /api/uploads` | anyone | **approved** portfolio items only |
+| Browse designs | `GET /api/uploads` | anyone | same approved feed |
+
+Route: `/artists/:artistId` (public page). Directory cards link to it.
+
+**Portfolio moderation visibility:** an upload starts `pending` (hidden
+everywhere public — feed *and* profile), visible only to its own artist via
+`?mine=1`. An admin `approve` makes it appear in both the global feed and the
+artist's profile. `reject` deletes the row **and** the Blob image; it never
+appears publicly. Empty portfolios render a clean empty state.
+
+**Never exposed on any public surface:** emails, offers, earnings, budgets,
+messages, requests, pending/rejected portfolio, dashboard stats, admin/
+moderation data. Verified by an automated no-leak scan in the audit.
+
+**Dashboard-only (session + role scoped):** everything under `/api/dashboard`,
+`/api/offers`, `/api/requests` (customer's own / artist's board+bids),
+`/api/messages`, `/api/notifications`, and `?mine=1` portfolio.
+
 ## Data source of truth
 
 **Postgres (Neon)** when `DATABASE_URL` is set — the repo (`api/_lib/repo.ts`)

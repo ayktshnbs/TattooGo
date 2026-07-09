@@ -569,6 +569,23 @@ export async function listPendingPortfolio(): Promise<PortfolioItem[]> {
   return (await readFeedIndex<FeedEntryLegacy>()).filter(e => e.status === 'pending');
 }
 
+/** Public profile surface: APPROVED items only, scoped to one artist. */
+export async function listApprovedPortfolioByArtist(artistId: string): Promise<PortfolioItem[]> {
+  if (usePg) {
+    return (await sql`SELECT * FROM portfolio_items WHERE artist_id = ${artistId} AND status = 'approved' ORDER BY ts DESC LIMIT 200`).map(mapPortfolio);
+  }
+  return (await readFeedIndex<FeedEntryLegacy>()).filter(e => e.artistId === artistId && e.status !== 'pending');
+}
+
+/** Aggregate, public-safe: how many jobs this artist has completed. */
+export async function countCompletedJobsByArtist(artistId: string): Promise<number> {
+  if (usePg) {
+    const rows = await sql`SELECT COUNT(*)::int AS c FROM offers WHERE artist_id = ${artistId} AND status = 'completed'`;
+    return Number(rows[0]?.c ?? 0);
+  }
+  return (await readCollection<OfferRow>('offers')).filter(o => o.artistId === artistId && o.status === 'completed').length;
+}
+
 export async function countRecentPortfolioByArtist(artistId: string, sinceTs: number): Promise<number> {
   if (usePg) {
     const rows = await sql`SELECT COUNT(*)::int AS c FROM portfolio_items WHERE artist_id = ${artistId} AND ts > ${sinceTs}`;

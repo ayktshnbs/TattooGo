@@ -196,8 +196,15 @@ export interface ApiArtist {
   reviewCount: number;
 }
 
+export interface ApiArtistProfile {
+  profile: ApiArtist & { completedJobs: number };
+  portfolio: ApiPortfolioItem[];
+  reviews: { id: string; rating: number; text: string; customerName: string; requestTitle: string; createdAt: string }[];
+}
+
 export const artists = {
   list: () => call<ApiArtist[]>('/api/artists'),
+  get: (id: string) => call<ApiArtistProfile>(`/api/artists?id=${encodeURIComponent(id)}`),
 };
 
 /* ---------- dashboard aggregates ---------- */
