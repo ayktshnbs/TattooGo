@@ -146,10 +146,20 @@ JSON under `db/` and `feed/`.)*
 - **HTTP driver:** repo uses single-statement atomicity (CTEs); if a future
   flow needs a multi-statement interactive transaction, switch that call to
   the Neon Pool/WebSocket client.
-- **Payments:** deliberately absent — decision pending (no Stripe, no
-  payouts, no commission logic anywhere).
+- **Payments:** deliberately **not implemented**. No payment provider,
+  package, API route, or env var exists in the codebase (no Stripe, no
+  Creem, no PayTR SDK, no payouts, no commission logic). **PayTR** is the
+  chosen provider for a future phase — to be integrated only after a formal
+  agreement — and is recorded here as a plan, nothing more.
+
+## Data source of truth
+
+**Postgres (Neon)** when `DATABASE_URL` is set — the repo (`api/_lib/repo.ts`)
+switches on `usePg = DATABASE_URL.length > 0`, so the Blob-JSON fallback is
+inert in production. **Vercel Blob stores only files**: `references/*.jpg`
+(request photos) and `uploads/*.jpg` (portfolio). Their URLs live in Postgres.
 
 ## Test accounts
 
-None — the datastore was wiped after the launch audit. Register fresh
-accounts via `/register`.
+None — Postgres and Blob were both wiped after the launch audit. Register
+fresh accounts via `/register`.
