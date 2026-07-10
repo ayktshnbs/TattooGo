@@ -37,6 +37,7 @@ export interface UserRow {
   failedLogins?: number;  // login rate limiting
   lockUntil?: number;     // ms epoch
   createdAt: string;
+  providerStatus?: 'active' | 'pending_profile' | 'needs_review' | 'suspended';
 }
 
 export interface TokenRow {

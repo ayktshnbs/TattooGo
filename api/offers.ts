@@ -30,6 +30,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST') {
       if (!isArtist) return res.status(403).json({ error: 'only artists can send offers' });
+      if (user.providerStatus !== 'active') return res.status(403).json({ error: 'your profile must be active to send offers' });
       const { requestId, price, message, appointmentAt } = req.body ?? {};
       if (typeof requestId !== 'string') return res.status(400).json({ error: 'requestId required' });
       const priceNum = Number(price);

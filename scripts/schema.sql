@@ -23,11 +23,12 @@ CREATE TABLE IF NOT EXISTS users (
   session_epoch  INTEGER NOT NULL DEFAULT 0,    -- bump to invalidate all sessions
   failed_logins  INTEGER NOT NULL DEFAULT 0,
   lock_until     BIGINT,                        -- ms epoch; login lockout
-  created_at     TEXT NOT NULL
+  created_at     TEXT NOT NULL,
+  provider_status TEXT                          -- 'active' | 'pending_profile' | 'needs_review' | 'suspended'
 );
 
 -- Discovery: filter registered artists/studios by city/district quickly.
-CREATE INDEX IF NOT EXISTS users_discovery_idx ON users(role, city, district);
+CREATE INDEX IF NOT EXISTS users_discovery_idx ON users(role, provider_status, city, district);
 
 -- One-time tokens for email verification and password reset (hash only).
 CREATE TABLE IF NOT EXISTS auth_tokens (

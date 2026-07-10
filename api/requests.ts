@@ -28,9 +28,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const r = await getRequestById(id);
         if (!r) return res.status(404).json({ error: 'not found' });
         const isOwner = r.customerId === user.id;
-        const artistCanSee = isArtist && (r.status === 'open' || await hasOffer(r.id, user.id));
+        // Active artists may browse open briefs; any artist keeps access to a
+        // request they already have an offer on (existing engagements survive
+        // a status downgrade). Never extends to other customers.
+        const artistCanSee = isArtist &&
+          ((user.providerStatus === 'active' && r.status === 'open') || await hasOffer(r.id, user.id));
         if (!isOwner && !artistCanSee) return res.status(403).json({ error: 'forbidden' });
         return res.status(200).json(r);
+      }
+      if (isArtist && user.providerStatus !== 'active') {
+        return res.status(403).json({ error: 'profile must be active to view the request board' });
       }
       const list = user.role === 'customer'
         ? await listRequestsByCustomer(user.id)

@@ -12,6 +12,41 @@ import {
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 import { isTurkishCity, isInTurkeyBounds } from './_lib/cities.js';
 
+function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus'] {
+  if (u.role === 'customer') return 'active';
+  if (u.providerStatus === 'suspended') return 'suspended';
+  if (u.providerStatus === 'needs_review') return 'needs_review';
+
+  const n = typeof p.name === 'string' ? p.name : u.name;
+  const c = typeof p.city === 'string' ? p.city : u.city;
+  const d = typeof p.district === 'string' ? p.district : u.district;
+  const b = typeof p.bio === 'string' ? p.bio : u.bio;
+  const s = Array.isArray(p.styles) ? p.styles : u.styles;
+  const a = typeof p.publicAddressLabel === 'string' ? p.publicAddressLabel : u.publicAddressLabel;
+  const l = typeof p.isPublicLocation === 'boolean' ? p.isPublicLocation : u.isPublicLocation;
+  const lat = p.latitude !== undefined ? p.latitude : u.latitude;
+  const lng = p.longitude !== undefined ? p.longitude : u.longitude;
+
+  const hasName = typeof n === 'string' && n.trim().length > 0;
+  const hasCity = typeof c === 'string' && c.trim().length > 0;
+  const hasDistrict = typeof d === 'string' && d.trim().length > 0;
+  const hasBio = typeof b === 'string' && b.trim().length > 0;
+  const hasStyles = Array.isArray(s) && s.length > 0;
+  const hasAddressLabel = typeof a === 'string' && a.trim().length > 0;
+  const hasLocChoice = typeof l === 'boolean';
+
+  if (!hasName || !hasCity || !hasDistrict || !hasBio || !hasStyles || !hasAddressLabel || !hasLocChoice) {
+    return 'pending_profile';
+  }
+
+  if (l) {
+    if (lat == null || lng == null) return 'pending_profile';
+    if (!isInTurkeyBounds(lat, lng)) return 'pending_profile';
+  }
+
+  return 'active';
+}
+
 /**
  * Authentication.
  *   GET  /api/auth → current user (or 401)
@@ -53,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (action === 'register') {
-      const { email, password, name, role, city, bio, styles } = req.body ?? {};
+      const { email, password, name, role } = req.body ?? {};
       if (typeof email !== 'string' || !EMAIL_RE.test(email) || email.length > 120) {
         return res.status(400).json({ error: 'valid email required' });
       }
@@ -66,26 +101,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof role !== 'string' || !ROLES.has(role)) {
         return res.status(400).json({ error: 'role must be customer, artist or studio' });
       }
-      // Turkey-only platform: city, when given, must be one of the 81 provinces.
-      const cityVal = typeof city === 'string' && city.trim() ? city.trim() : undefined;
-      if (cityVal && !isTurkishCity(cityVal)) {
-        return res.status(400).json({ error: 'city must be a Turkish province' });
-      }
-
+      
       const { salt, passHash } = hashPassword(password);
       const user: UserRow = {
         id: newId('usr'),
         email: email.toLowerCase().trim(),
         name: name.trim(),
         role: role as UserRow['role'],
-        city: cityVal,
-        bio: typeof bio === 'string' && bio.trim() ? bio.trim().slice(0, 500) : undefined,
-        styles: Array.isArray(styles) ? styles.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined,
         passHash,
         salt,
         emailVerified: false,
         sessionEpoch: 0,
         createdAt: today(),
+        providerStatus: role === 'customer' ? 'active' : 'pending_profile',
       };
       const created = await createUser(user);
       if (!created) return res.status(409).json({ error: 'an account with this email already exists' });
@@ -165,7 +193,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'update-profile') {
       const me = await getSessionUser(req);
       if (!me) return res.status(401).json({ error: 'sign in required' });
-      const { bio, city, styles, district, publicAddressLabel, latitude, longitude, isPublicLocation } = req.body ?? {};
+      const { name, bio, city, styles, district, publicAddressLabel, latitude, longitude, isPublicLocation } = req.body ?? {};
+
+      if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 80)) {
+        return res.status(400).json({ error: 'invalid name' });
+      }
 
       const isArtist = me.role === 'artist' || me.role === 'studio';
       // Location fields are artist/studio-only; customers can't set a map pin.
@@ -194,7 +226,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'coordinates must be within Turkey' });
       }
 
-      await updateProfile(me.id, {
+      const pUpdate = {
+        name: typeof name === 'string' ? name.trim() : undefined,
         bio: typeof bio === 'string' ? bio.trim().slice(0, 500) : undefined,
         city: cityVal,
         styles: Array.isArray(styles) ? styles.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined,
@@ -203,6 +236,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         latitude: lat,
         longitude: lng,
         isPublicLocation: typeof isPublicLocation === 'boolean' ? isPublicLocation : undefined,
+      };
+
+      const providerStatus = evaluateArtistActivation(me, pUpdate);
+
+      await updateProfile(me.id, {
+        ...pUpdate,
+        providerStatus,
       });
       const updated = await getUserById(me.id);
       return res.status(200).json(updated ? ownUser(updated) : { ok: true });

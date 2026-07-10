@@ -45,6 +45,7 @@ const mapUser = (r: Any): UserRow => ({
   failedLogins: r.failed_logins as number,
   lockUntil: r.lock_until == null ? undefined : Number(r.lock_until),
   createdAt: r.created_at as string,
+  providerStatus: r.provider_status as UserRow['providerStatus'],
 });
 
 const mapRequest = (r: Any): RequestRow & { offerCount?: number } => ({
@@ -120,8 +121,8 @@ export async function getUserById(id: string): Promise<UserRow | null> {
 export async function createUser(u: UserRow): Promise<UserRow | null> {
   if (usePg) {
     try {
-      await sql`INSERT INTO users (id, email, name, role, city, bio, styles, pass_hash, salt, email_verified, session_epoch, failed_logins, created_at)
-        VALUES (${u.id}, ${u.email}, ${u.name}, ${u.role}, ${u.city ?? null}, ${u.bio ?? null}, ${u.styles ?? []}, ${u.passHash}, ${u.salt}, FALSE, 0, 0, ${u.createdAt})`;
+      await sql`INSERT INTO users (id, email, name, role, city, bio, styles, pass_hash, salt, email_verified, session_epoch, failed_logins, created_at, provider_status)
+        VALUES (${u.id}, ${u.email}, ${u.name}, ${u.role}, ${u.city ?? null}, ${u.bio ?? null}, ${u.styles ?? []}, ${u.passHash}, ${u.salt}, FALSE, 0, 0, ${u.createdAt}, ${u.providerStatus ?? null})`;
       return u;
     } catch (err) {
       if (err instanceof Error && /unique|duplicate/i.test(err.message)) return null;
@@ -233,6 +234,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
       LEFT JOIN reviews r ON r.artist_id = u.id
       LEFT JOIN portfolio_items p ON p.artist_id = u.id AND p.status = 'approved'
       WHERE u.role IN ('artist','studio')
+        AND u.provider_status = 'active'
         AND (${city}::text IS NULL OR u.city = ${city})
         AND (${district}::text IS NULL OR u.district = ${district})
         AND (${q}::text IS NULL OR LOWER(u.name) LIKE ${q})
@@ -262,7 +264,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
   const reviews = await readCollection<ReviewRow>('reviews');
   const feed = await readFeedIndex<FeedEntryLegacy>();
   return users
-    .filter(u => u.role === 'artist' || u.role === 'studio')
+    .filter(u => (u.role === 'artist' || u.role === 'studio') && u.providerStatus === 'active')
     .filter(u => !city || u.city === city)
     .filter(u => !district || u.district === district)
     .filter(u => !q || u.name.toLowerCase().includes(q.replace(/%/g, '')))
@@ -287,6 +289,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
 }
 
 export interface ProfileUpdate {
+  name?: string;
   bio?: string;
   city?: string;
   styles?: string[];
@@ -295,12 +298,14 @@ export interface ProfileUpdate {
   latitude?: number | null;
   longitude?: number | null;
   isPublicLocation?: boolean;
+  providerStatus?: UserRow['providerStatus'];
 }
 
 /** Update the session user's own editable profile fields. Scoped to userId. */
 export async function updateProfile(userId: string, p: ProfileUpdate): Promise<void> {
   if (usePg) {
     await sql`UPDATE users SET
+      name = COALESCE(${p.name ?? null}, name),
       bio = COALESCE(${p.bio ?? null}, bio),
       city = COALESCE(${p.city ?? null}, city),
       styles = COALESCE(${p.styles ?? null}, styles),
@@ -308,13 +313,15 @@ export async function updateProfile(userId: string, p: ProfileUpdate): Promise<v
       public_address_label = COALESCE(${p.publicAddressLabel ?? null}, public_address_label),
       latitude = COALESCE(${p.latitude ?? null}::double precision, latitude),
       longitude = COALESCE(${p.longitude ?? null}::double precision, longitude),
-      is_public_location = COALESCE(${p.isPublicLocation ?? null}, is_public_location)
+      is_public_location = COALESCE(${p.isPublicLocation ?? null}, is_public_location),
+      provider_status = COALESCE(${p.providerStatus ?? null}, provider_status)
       WHERE id = ${userId}`;
     return;
   }
   const users = await readCollection<UserRow>('users');
   const u = users.find(x => x.id === userId);
   if (!u) return;
+  if (p.name !== undefined) u.name = p.name;
   if (p.bio !== undefined) u.bio = p.bio;
   if (p.city !== undefined) u.city = p.city;
   if (p.styles !== undefined) u.styles = p.styles;
@@ -323,6 +330,7 @@ export async function updateProfile(userId: string, p: ProfileUpdate): Promise<v
   if (p.latitude !== undefined) u.latitude = p.latitude ?? undefined;
   if (p.longitude !== undefined) u.longitude = p.longitude ?? undefined;
   if (p.isPublicLocation !== undefined) u.isPublicLocation = p.isPublicLocation;
+  if (p.providerStatus !== undefined) u.providerStatus = p.providerStatus;
   await writeCollection('users', users);
 }
 
@@ -655,8 +663,18 @@ export async function createReview(
 interface FeedEntryLegacy extends PortfolioItem { likes?: number; views?: number; swatch?: string; source?: string }
 
 export async function listApprovedPortfolio(): Promise<PortfolioItem[]> {
-  if (usePg) return (await sql`SELECT * FROM portfolio_items WHERE status = 'approved' ORDER BY ts DESC LIMIT 200`).map(mapPortfolio);
-  return (await readFeedIndex<FeedEntryLegacy>()).filter(e => e.status !== 'pending');
+  if (usePg) {
+    const rows = await sql`
+      SELECT p.* FROM portfolio_items p
+      JOIN users u ON u.id = p.artist_id
+      WHERE p.status = 'approved' AND u.provider_status = 'active'
+      ORDER BY p.ts DESC LIMIT 200`;
+    return rows.map(mapPortfolio);
+  }
+  const feed = await readFeedIndex<FeedEntryLegacy>();
+  const users = await readCollection<UserRow>('users');
+  const activeIds = new Set(users.filter(u => u.providerStatus === 'active').map(u => u.id));
+  return feed.filter(e => e.status !== 'pending' && activeIds.has(e.artistId));
 }
 
 export async function listPortfolioByArtist(artistId: string): Promise<PortfolioItem[]> {
@@ -669,12 +687,20 @@ export async function listPendingPortfolio(): Promise<PortfolioItem[]> {
   return (await readFeedIndex<FeedEntryLegacy>()).filter(e => e.status === 'pending');
 }
 
-/** Public profile surface: APPROVED items only, scoped to one artist. */
 export async function listApprovedPortfolioByArtist(artistId: string): Promise<PortfolioItem[]> {
   if (usePg) {
-    return (await sql`SELECT * FROM portfolio_items WHERE artist_id = ${artistId} AND status = 'approved' ORDER BY ts DESC LIMIT 200`).map(mapPortfolio);
+    const rows = await sql`
+      SELECT p.* FROM portfolio_items p
+      JOIN users u ON u.id = p.artist_id
+      WHERE p.artist_id = ${artistId} AND p.status = 'approved' AND u.provider_status = 'active'
+      ORDER BY p.ts DESC LIMIT 200`;
+    return rows.map(mapPortfolio);
   }
-  return (await readFeedIndex<FeedEntryLegacy>()).filter(e => e.artistId === artistId && e.status !== 'pending');
+  const feed = await readFeedIndex<FeedEntryLegacy>();
+  const users = await readCollection<UserRow>('users');
+  const user = users.find(u => u.id === artistId);
+  if (user?.providerStatus !== 'active') return [];
+  return feed.filter(e => e.artistId === artistId && e.status !== 'pending');
 }
 
 /** Aggregate, public-safe: how many jobs this artist has completed. */

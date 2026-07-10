@@ -46,10 +46,12 @@ export interface Me {
   longitude?: number;
   isPublicLocation?: boolean;
   hasPublicLocation?: boolean;
+  providerStatus?: 'active' | 'pending_profile' | 'needs_review' | 'suspended';
   createdAt: string;
 }
 
 export interface ProfileUpdate {
+  name?: string;
   bio?: string;
   city?: string;
   styles?: string[];

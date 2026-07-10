@@ -112,6 +112,7 @@ export function publicUser(u: UserRow) {
     latitude: locPublic ? u.latitude : undefined,
     longitude: locPublic ? u.longitude : undefined,
     publicAddressLabel: locPublic ? u.publicAddressLabel : undefined,
+    providerStatus: u.providerStatus,
   };
 }
 
@@ -126,5 +127,6 @@ export function ownUser(u: UserRow) {
     longitude: u.longitude,
     publicAddressLabel: u.publicAddressLabel,
     isPublicLocation: u.isPublicLocation ?? false,
+    providerStatus: u.providerStatus,
   };
 }

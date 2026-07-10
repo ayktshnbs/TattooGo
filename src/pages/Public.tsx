@@ -414,9 +414,6 @@ export function Register() {
   const [role, setRole] = useState<'customer' | 'artist' | 'studio'>('customer');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [city, setCity] = useState(CITIES[0]);
-  const [bio, setBio] = useState('');
-  const [style, setStyle] = useState(STYLES[0].key);
   const [password, setPassword] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState('');
@@ -443,9 +440,7 @@ export function Register() {
           setBusy(true); setError('');
           try {
             const me = await auth.register({
-              email, password, name, role, city,
-              bio: role !== 'customer' ? bio : undefined,
-              styles: role !== 'customer' ? [style] : undefined,
+              email, password, name, role
             });
             setUser(me);
             navigate(isArtistRole(me.role) ? '/studio' : '/dashboard');
@@ -461,17 +456,6 @@ export function Register() {
           <Input value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
         <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
-        <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
-          <Select options={CITIES.map(c => ({ value: c, label: c }))} value={city} onChange={(e) => setCity(e.target.value)} />
-        </Field>
-        {role !== 'customer' && (
-          <>
-            <Field label={lang === 'tr' ? 'Kısa biyografi' : 'Short bio'}><Textarea rows={3} value={bio} onChange={(e) => setBio(e.target.value)} /></Field>
-            <Field label={lang === 'tr' ? 'Ana stil' : 'Primary style'}>
-              <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value as typeof style)} />
-            </Field>
-          </>
-        )}
         <Field label={lang === 'tr' ? 'Şifre (en az 8 karakter)' : 'Password (min 8 characters)'}>
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
         </Field>

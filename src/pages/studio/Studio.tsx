@@ -540,8 +540,42 @@ export function StudioProfile() {
   useReveal();
   const { lang } = useLang();
   const { user } = useAuth();
+  
+  let banner = null;
+  if (user?.providerStatus === 'pending_profile') {
+    banner = (
+      <div className="card card-pad" style={{ marginBottom: 24, backgroundColor: 'var(--accent)', color: 'var(--paper)', border: 'none' }}>
+        <strong>{lang === 'tr' ? 'Profiliniz eksik' : 'Your profile is incomplete'}</strong>
+        <p style={{ margin: '8px 0 0', fontSize: 14 }}>
+          {lang === 'tr'
+            ? 'Aktif olmak ve müşterilerden gelen isteklere teklif verebilmek için profil bilgilerinizi (isim, şehir, ilçe, biyografi, stiller ve konum ayarları) tamamlayın.'
+            : 'To become active and send offers to customer requests, you must complete your profile (name, city, district, bio, styles, and location settings).'}
+        </p>
+      </div>
+    );
+  } else if (user?.providerStatus === 'needs_review') {
+    banner = (
+      <div className="card card-pad" style={{ marginBottom: 24, borderColor: 'var(--ink)' }}>
+        <strong>{lang === 'tr' ? 'Profiliniz inceleniyor' : 'Your profile is under review'}</strong>
+        <p style={{ margin: '8px 0 0', fontSize: 14 }}>
+          {lang === 'tr' ? 'Profiliniz bir moderatör tarafından inceleniyor. Yakında size dönüş yapacağız.' : 'Your profile is being reviewed by a moderator. We will get back to you soon.'}
+        </p>
+      </div>
+    );
+  } else if (user?.providerStatus === 'suspended') {
+    banner = (
+      <div className="card card-pad" style={{ marginBottom: 24, borderColor: 'var(--ink)' }}>
+        <strong>{lang === 'tr' ? 'Hesabınız askıya alındı' : 'Account suspended'}</strong>
+        <p style={{ margin: '8px 0 0', fontSize: 14 }}>
+          {lang === 'tr' ? 'Lütfen destek ile iletişime geçin.' : 'Please contact support.'}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Profilim' : 'My profile'}>
+      {banner}
       <div className="card card-pad col gap-3" style={{ maxWidth: 520 }}>
         <div className="row between center">
           <span className="mono text-muted">{lang === 'tr' ? 'Ad' : 'Name'}</span>
@@ -571,15 +605,18 @@ export function StudioProfile() {
         </div>
       </div>
 
-      <LocationEditor />
+      <ProfileEditor />
     </DashboardLayout>
   );
 }
 
-/* ---------- Public location editor (artist/studio) ---------- */
-function LocationEditor() {
+/* ---------- Public profile editor (artist/studio) ---------- */
+function ProfileEditor() {
   const { lang } = useLang();
   const { user, setUser } = useAuth();
+  const [name, setName] = useState(user?.name ?? '');
+  const [bio, setBio] = useState(user?.bio ?? '');
+  const [style, setStyle] = useState(user?.styles?.[0] ?? STYLES[0].key);
   const [city, setCity] = useState(user?.city ?? CITIES[0]);
   const [district, setDistrict] = useState(user?.district ?? '');
   const [addr, setAddr] = useState(user?.publicAddressLabel ?? '');
@@ -600,15 +637,28 @@ function LocationEditor() {
   return (
     <div className="card card-pad col gap-3" style={{ maxWidth: 520, marginTop: 24 }}>
       <div className="col gap-1">
-        <strong>{lang === 'tr' ? 'Herkese açık konum' : 'Public location'}</strong>
+        <strong>{lang === 'tr' ? 'Profil düzenle' : 'Edit profile'}</strong>
         <span className="mono text-muted" style={{ fontSize: 11 }}>
           {lang === 'tr'
-            ? 'Yalnızca "Haritada göster" açıksa haritada görünür. Ev adresinizi paylaşmayın.'
-            : 'Shown on the discovery map only if "Show on map" is on. Do not share a home address.'}
+            ? 'Bu bilgiler müşterilerin sizi bulmasına yardımcı olur.'
+            : 'These details help customers discover you.'}
         </span>
       </div>
       {saved && <span className="mono">✓ {lang === 'tr' ? 'Kaydedildi.' : 'Saved.'}</span>}
       {error && <span className="mono">⚠ {error}</span>}
+      
+      <Field label={lang === 'tr' ? 'Ad / Stüdyo Adı' : 'Name / Studio Name'}>
+        <Input value={name} onChange={(e) => setName(e.target.value)} required />
+      </Field>
+      <Field label={lang === 'tr' ? 'Kısa biyografi' : 'Short bio'}>
+        <Textarea rows={3} value={bio} onChange={(e) => setBio(e.target.value)} />
+      </Field>
+      <Field label={lang === 'tr' ? 'Ana stil' : 'Primary style'}>
+        <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value)} />
+      </Field>
+      
+      <div style={{ height: 1, backgroundColor: 'var(--hairline)', margin: '16px 0' }} />
+      
       <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
         <Select value={city} onChange={(e) => setCity(e.target.value)} options={CITIES.map(c => ({ value: c, label: c }))} />
       </Field>
@@ -639,6 +689,7 @@ function LocationEditor() {
             setBusy(true); setError(''); setSaved(false);
             try {
               const me = await auth.updateProfile({
+                name: name.trim(), bio: bio.trim(), styles: [style],
                 city, district: district.trim(), publicAddressLabel: addr.trim(),
                 latitude: latNum ?? undefined, longitude: lngNum ?? undefined,
                 isPublicLocation: isPublic,
