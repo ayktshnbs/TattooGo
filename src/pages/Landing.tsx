@@ -142,13 +142,16 @@ export function Landing() {
   );
 }
 
-/* Animated brand mark — no rings, the mark itself moves. Mimics the look of
-   an AI-animated logo video: the swirl arms sweep in a slow continuous spin
-   while the whole mark floats with subtle depth (scale + drift) and its glow
-   breathes. Layered CSS transforms in globals.css (.logo-motion*). */
+/* Animated brand mark — the swirl spins slowly while the whole mark floats
+   and its glow breathes (as before), now seated in the space scene: a soft
+   indigo aura behind it and a thin tilted orbit ring with a small glint
+   travelling it, so the mark reads as the planet of the hero. CSS-only,
+   in globals.css (.logo-motion*, .logo-aura, .logo-orbit). */
 function AnimatedLogo() {
   return (
     <div className="logo-motion" aria-hidden>
+      <span className="logo-aura" />
+      <span className="logo-orbit"><i /></span>
       <span className="logo-motion-mark"><Icon name="logo" size="100%" /></span>
     </div>
   );

@@ -588,12 +588,14 @@ input, textarea, select { font: inherit; color: inherit; }
    slow, continuous rotation. The glow breathes in sync with the drift.
    Slow, smooth, controlled pacing — nothing chaotic. */
 .logo-motion {
+  position: relative;
   width: clamp(88px, 13vw, 132px);
   aspect-ratio: 1;
   display: inline-flex;
   animation: logo-drift 11s var(--ease-in-out) infinite;
 }
 .logo-motion-mark {
+  position: relative;
   width: 100%;
   height: 100%;
   color: #F5F2EB;
@@ -602,6 +604,50 @@ input, textarea, select { font: inherit; color: inherit; }
   animation:
     logo-spin 26s linear infinite,
     logo-glow 11s var(--ease-in-out) infinite;
+}
+/* Soft indigo atmosphere behind the mark — ties it into the nebula scene. */
+.logo-aura {
+  position: absolute;
+  inset: -58%;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(126, 134, 216, 0.17) 0%,
+    rgba(110, 106, 190, 0.06) 46%,
+    rgba(110, 106, 190, 0) 72%);
+  animation: logo-aura-breathe 11s var(--ease-in-out) infinite;
+  pointer-events: none;
+}
+/* Thin tilted orbit with a small glint travelling it — the mark as planet.
+   rotateX without perspective flattens the circle into a clean ellipse. */
+.logo-orbit {
+  position: absolute;
+  inset: -30%;
+  border-radius: 50%;
+  border: 1px solid rgba(245, 242, 235, 0.14);
+  transform: rotate(-16deg) rotateX(72deg);
+  pointer-events: none;
+}
+.logo-orbit i {
+  position: absolute;
+  inset: 0;
+  animation: logo-orbit-run 14s linear infinite;
+}
+.logo-orbit i::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -2.5px;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: #F5F2EB;
+  box-shadow: 0 0 8px 2px rgba(235, 240, 255, 0.55);
+}
+@keyframes logo-orbit-run { to { transform: rotate(360deg); } }
+@keyframes logo-aura-breathe {
+  0%, 100% { opacity: 0.75; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.06); }
 }
 @keyframes logo-spin { to { transform: rotate(360deg); } }
 @keyframes logo-drift {
@@ -613,7 +659,7 @@ input, textarea, select { font: inherit; color: inherit; }
   50%      { filter: drop-shadow(0 0 30px rgba(255, 255, 255, 0.4)); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .logo-motion, .logo-motion-mark { animation: none; }
+  .logo-motion, .logo-motion-mark, .logo-aura, .logo-orbit i { animation: none; }
 }
 
 /* Hero overlay legibility — frosted chips so metadata and badges read
