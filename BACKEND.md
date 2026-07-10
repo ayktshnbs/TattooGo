@@ -40,7 +40,7 @@ Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`,
 | `MAILGUN_BASE_URL` | optional | `https://api.mailgun.net` (US, default) or `https://api.eu.mailgun.net` (EU) — must match the region the domain was created in |
 | `MAILGUN_FROM_EMAIL` | optional | e.g. `TattooGo <mail@yourdomain.com>`; defaults to the sandbox sender |
 | `VITE_API_PROXY` | dev only | localhost /api proxy target (defaults to production) |
-| `VITE_GOOGLE_MAPS_API_KEY` | for map | browser Maps JS key (domain-restricted). Unset → list-only, map shows placeholder. **No Places API used.** |
+| *(map)* | none | discovery map uses Leaflet + OpenStreetMap tiles — **no API key required**. `VITE_GOOGLE_MAPS_API_KEY` is removed/ignored. |
 
 ## Mailgun setup (one-time)
 
@@ -140,6 +140,7 @@ constraint. Ownership and status gates live in the SQL `WHERE`, not just JS.
   `/reset-password?token=…` → new password + epoch bump + cookie cleared.
 - **Roles:** customer → `/dashboard`, artist/studio → `/studio`, enforced by
   client guards AND server-side scoping on every endpoint.
+- **Provider Status:** Customers are always `active`. Artists/studios start as `pending_profile` and are blocked from the marketplace (offers, request board, map, public profile). They activate automatically when mandatory profile fields are complete. Moderation can manually set them to `needs_review` or `suspended`.
 
 ## What still uses Vercel Blob
 
@@ -172,9 +173,9 @@ JSON under `db/` and `feed/`.)*
 
 | Surface | Endpoint | Who can read | What is exposed |
 | --- | --- | --- | --- |
-| Artist directory | `GET /api/artists` | anyone | name, role, city, styles, bio, rating aggregate |
-| **Artist public profile** | `GET /api/artists?id=<id>` | anyone | profile summary + rating + review count + **completed-jobs count** + **approved** portfolio only + public reviews. **404 for customer ids** (not enumerable) |
-| Public tattoo feed | `GET /api/uploads` | anyone | **approved** portfolio items only |
+| Artist directory | `GET /api/artists` | anyone | name, role, city, styles, bio, rating aggregate (**active** providers only) |
+| **Artist public profile** | `GET /api/artists?id=<id>` | anyone | profile summary + rating + review count + **completed-jobs count** + **approved** portfolio only + public reviews. **404 for customer ids or non-active artists** (not enumerable) |
+| Public tattoo feed | `GET /api/uploads` | anyone | **approved** portfolio items belonging to **active** artists only |
 | Browse designs | `GET /api/uploads` | anyone | same approved feed |
 
 Route: `/artists/:artistId` (public page). Directory cards link to it.
@@ -185,19 +186,21 @@ Route: `/artists/:artistId` (public page). Directory cards link to it.
 the SAME `GET /api/artists?city=&district=&q=` Postgres result set — they can
 never diverge.** Filtering happens in Postgres (indexed on role/city/district).
 
-**Google Maps is the display layer ONLY.** Markers are placed exclusively from
-our API response. We do **not** use the Google Places API, Text Search, or
-Nearby Search — no external/unregistered business ever appears. The loader
-requests the Maps JS library with **no `&libraries=places`**. Verified: the
-production bundle contains **zero** Places references.
+**Leaflet + OpenStreetMap is the display layer ONLY.** Tiles come from
+`tile.openstreetmap.org` (free, no API key). Markers are placed exclusively
+from our API response. We do **not** use Google Maps, Google Places, Yandex
+organization search, or any external business data — no unregistered business
+ever appears. Verified: the production bundle contains **zero** Google
+Maps/Places references.
 
-**Env:** `VITE_GOOGLE_MAPS_API_KEY` (browser-safe, build-time public — must be
-**domain-restricted** in Google Cloud). No server Maps key. If the key is
-unset, the map code is dead-code-eliminated and the UI shows a "Map
-unavailable" placeholder; the list still works. Adding the key + redeploy
-activates the map. Geocoding is not called per request — artists save
-`latitude`/`longitude` manually in their profile (optional Geocoding API is a
-future add, never on the search path).
+**Env:** none. No map API key exists anywhere (the old
+`VITE_GOOGLE_MAPS_API_KEY` is removed and ignored). If a commercial tile
+provider is ever adopted, isolate its key behind a single
+`VITE_MAP_TILE_URL`-style config in `DiscoveryMap.tsx` — nothing else may
+know the provider. If tiles fail to load, markers/attribution still render
+and the list below is unaffected. Geocoding is not called — artists save
+`latitude`/`longitude` manually in their profile (if geocoding is ever added,
+it must be restricted to country TR).
 
 **Location visibility:** a marker/coords appear only when the artist set
 `is_public_location = TRUE` **and** saved coordinates. Otherwise only the
