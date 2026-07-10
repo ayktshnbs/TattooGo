@@ -24,6 +24,12 @@ export interface UserRow {
   city?: string;
   bio?: string;
   styles?: string[];
+  // Public discovery location (artist/studio). Exposed only when isPublicLocation.
+  district?: string;
+  publicAddressLabel?: string;
+  latitude?: number;
+  longitude?: number;
+  isPublicLocation?: boolean;
   passHash: string;
   salt: string;
   emailVerified?: boolean;

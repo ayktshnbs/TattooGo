@@ -101,11 +101,30 @@ export async function getSessionUser(req: VercelRequest): Promise<UserRow | null
   return user;
 }
 
-/** Public projection of a user row — never leaks hash/salt/email to others. */
+/** Public projection of a user row — never leaks hash/salt/email to others.
+ *  Location is included ONLY when the artist enabled is_public_location. */
 export function publicUser(u: UserRow) {
-  return { id: u.id, name: u.name, role: u.role, city: u.city, styles: u.styles, bio: u.bio, createdAt: u.createdAt };
+  const locPublic = (u.isPublicLocation ?? false);
+  return {
+    id: u.id, name: u.name, role: u.role, city: u.city, styles: u.styles, bio: u.bio, createdAt: u.createdAt,
+    district: u.district,
+    hasPublicLocation: locPublic && u.latitude != null && u.longitude != null,
+    latitude: locPublic ? u.latitude : undefined,
+    longitude: locPublic ? u.longitude : undefined,
+    publicAddressLabel: locPublic ? u.publicAddressLabel : undefined,
+  };
 }
 
+/** The owner's own view — includes email + raw location (even when private,
+ *  so the artist can edit it) + the visibility toggle. */
 export function ownUser(u: UserRow) {
-  return { ...publicUser(u), email: u.email, emailVerified: u.emailVerified ?? false };
+  return {
+    ...publicUser(u),
+    email: u.email,
+    emailVerified: u.emailVerified ?? false,
+    latitude: u.latitude,
+    longitude: u.longitude,
+    publicAddressLabel: u.publicAddressLabel,
+    isPublicLocation: u.isPublicLocation ?? false,
+  };
 }

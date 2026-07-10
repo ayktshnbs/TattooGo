@@ -34,6 +34,11 @@ const mapUser = (r: Any): UserRow => ({
   id: r.id as string, email: r.email as string, name: r.name as string,
   role: r.role as UserRow['role'], city: r.city as string ?? undefined,
   bio: r.bio as string ?? undefined, styles: (r.styles as string[]) ?? [],
+  district: r.district as string ?? undefined,
+  publicAddressLabel: r.public_address_label as string ?? undefined,
+  latitude: r.latitude == null ? undefined : Number(r.latitude),
+  longitude: r.longitude == null ? undefined : Number(r.longitude),
+  isPublicLocation: r.is_public_location as boolean ?? false,
   passHash: r.pass_hash as string, salt: r.salt as string,
   emailVerified: r.email_verified as boolean,
   sessionEpoch: r.session_epoch as number,
@@ -194,36 +199,131 @@ export async function clearLoginFailures(userId: string): Promise<void> {
 }
 
 export interface PublicArtist {
-  id: string; name: string; role: string; city?: string; styles?: string[]; bio?: string;
+  id: string; name: string; role: string; city?: string; district?: string; styles?: string[]; bio?: string;
   createdAt: string; rating: number | null; reviewCount: number;
+  // Location is included ONLY when the artist enabled is_public_location.
+  latitude?: number; longitude?: number; publicAddressLabel?: string; hasPublicLocation: boolean;
+  previewImages: string[]; portfolioCount: number;
 }
 
-export async function listArtistsPublic(): Promise<PublicArtist[]> {
+export interface ArtistFilters {
+  city?: string;
+  district?: string;
+  q?: string;
+}
+
+/** Public-safe discovery projection: registered artists/studios only, filtered
+ *  in the DB. Location fields are exposed only when the artist opted in. */
+export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<PublicArtist[]> {
+  const city = filters.city?.trim() || null;
+  const district = filters.district?.trim() || null;
+  const q = filters.q?.trim() ? `%${filters.q.trim().toLowerCase()}%` : null;
+
   if (usePg) {
     const rows = await sql`
-      SELECT u.id, u.name, u.role, u.city, u.styles, u.bio, u.created_at,
-             ROUND(AVG(r.rating)::numeric, 1) AS rating, COUNT(r.id)::int AS review_count
-      FROM users u LEFT JOIN reviews r ON r.artist_id = u.id
+      SELECT u.id, u.name, u.role, u.city, u.district, u.styles, u.bio, u.created_at,
+             u.is_public_location, u.latitude, u.longitude, u.public_address_label,
+             ROUND(AVG(r.rating)::numeric, 1) AS rating, COUNT(DISTINCT r.id)::int AS review_count,
+             COUNT(DISTINCT p.id)::int AS portfolio_count,
+             (SELECT ARRAY(
+                SELECT p2.image_url FROM portfolio_items p2
+                WHERE p2.artist_id = u.id AND p2.status = 'approved'
+                ORDER BY p2.ts DESC LIMIT 3)) AS preview_images
+      FROM users u
+      LEFT JOIN reviews r ON r.artist_id = u.id
+      LEFT JOIN portfolio_items p ON p.artist_id = u.id AND p.status = 'approved'
       WHERE u.role IN ('artist','studio')
-      GROUP BY u.id ORDER BY review_count DESC, u.name ASC`;
-    return rows.map(r => ({
-      id: r.id as string, name: r.name as string, role: r.role as string,
-      city: r.city as string ?? undefined, styles: (r.styles as string[]) ?? [],
-      bio: r.bio as string ?? undefined, createdAt: r.created_at as string,
-      rating: r.rating == null ? null : Number(r.rating), reviewCount: Number(r.review_count),
-    }));
+        AND (${city}::text IS NULL OR u.city = ${city})
+        AND (${district}::text IS NULL OR u.district = ${district})
+        AND (${q}::text IS NULL OR LOWER(u.name) LIKE ${q})
+      GROUP BY u.id
+      ORDER BY review_count DESC, u.name ASC
+      LIMIT 200`;
+    return rows.map(r => {
+      const isPublic = (r.is_public_location as boolean) ?? false;
+      return {
+        id: r.id as string, name: r.name as string, role: r.role as string,
+        city: r.city as string ?? undefined, district: r.district as string ?? undefined,
+        styles: (r.styles as string[]) ?? [], bio: r.bio as string ?? undefined,
+        createdAt: r.created_at as string,
+        rating: r.rating == null ? null : Number(r.rating), reviewCount: Number(r.review_count),
+        hasPublicLocation: isPublic && r.latitude != null && r.longitude != null,
+        latitude: isPublic && r.latitude != null ? Number(r.latitude) : undefined,
+        longitude: isPublic && r.longitude != null ? Number(r.longitude) : undefined,
+        publicAddressLabel: isPublic ? (r.public_address_label as string ?? undefined) : undefined,
+        previewImages: (r.preview_images as string[]) ?? [],
+        portfolioCount: Number(r.portfolio_count),
+      };
+    });
   }
+
+  // Blob fallback
   const users = await readCollection<UserRow>('users');
   const reviews = await readCollection<ReviewRow>('reviews');
-  return users.filter(u => u.role === 'artist' || u.role === 'studio').map(u => {
-    const mine = reviews.filter(r => r.artistId === u.id);
-    return {
-      id: u.id, name: u.name, role: u.role, city: u.city, styles: u.styles, bio: u.bio,
-      createdAt: u.createdAt,
-      rating: mine.length ? Math.round((mine.reduce((s, r) => s + r.rating, 0) / mine.length) * 10) / 10 : null,
-      reviewCount: mine.length,
-    };
-  }).sort((a, b) => (b.reviewCount - a.reviewCount) || a.name.localeCompare(b.name));
+  const feed = await readFeedIndex<FeedEntryLegacy>();
+  return users
+    .filter(u => u.role === 'artist' || u.role === 'studio')
+    .filter(u => !city || u.city === city)
+    .filter(u => !district || u.district === district)
+    .filter(u => !q || u.name.toLowerCase().includes(q.replace(/%/g, '')))
+    .map(u => {
+      const mine = reviews.filter(r => r.artistId === u.id);
+      const approved = feed.filter(e => e.artistId === u.id && e.status !== 'pending');
+      const isPublic = (u.isPublicLocation ?? false) && u.latitude != null && u.longitude != null;
+      return {
+        id: u.id, name: u.name, role: u.role, city: u.city, district: u.district, styles: u.styles, bio: u.bio,
+        createdAt: u.createdAt,
+        rating: mine.length ? Math.round((mine.reduce((s, r) => s + r.rating, 0) / mine.length) * 10) / 10 : null,
+        reviewCount: mine.length,
+        hasPublicLocation: isPublic,
+        latitude: isPublic ? u.latitude : undefined,
+        longitude: isPublic ? u.longitude : undefined,
+        publicAddressLabel: (u.isPublicLocation ?? false) ? u.publicAddressLabel : undefined,
+        previewImages: approved.slice(0, 3).map(e => e.imageUrl),
+        portfolioCount: approved.length,
+      };
+    })
+    .sort((a, b) => (b.reviewCount - a.reviewCount) || a.name.localeCompare(b.name));
+}
+
+export interface ProfileUpdate {
+  bio?: string;
+  city?: string;
+  styles?: string[];
+  district?: string;
+  publicAddressLabel?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  isPublicLocation?: boolean;
+}
+
+/** Update the session user's own editable profile fields. Scoped to userId. */
+export async function updateProfile(userId: string, p: ProfileUpdate): Promise<void> {
+  if (usePg) {
+    await sql`UPDATE users SET
+      bio = COALESCE(${p.bio ?? null}, bio),
+      city = COALESCE(${p.city ?? null}, city),
+      styles = COALESCE(${p.styles ?? null}, styles),
+      district = COALESCE(${p.district ?? null}, district),
+      public_address_label = COALESCE(${p.publicAddressLabel ?? null}, public_address_label),
+      latitude = COALESCE(${p.latitude ?? null}::double precision, latitude),
+      longitude = COALESCE(${p.longitude ?? null}::double precision, longitude),
+      is_public_location = COALESCE(${p.isPublicLocation ?? null}, is_public_location)
+      WHERE id = ${userId}`;
+    return;
+  }
+  const users = await readCollection<UserRow>('users');
+  const u = users.find(x => x.id === userId);
+  if (!u) return;
+  if (p.bio !== undefined) u.bio = p.bio;
+  if (p.city !== undefined) u.city = p.city;
+  if (p.styles !== undefined) u.styles = p.styles;
+  if (p.district !== undefined) u.district = p.district;
+  if (p.publicAddressLabel !== undefined) u.publicAddressLabel = p.publicAddressLabel;
+  if (p.latitude !== undefined) u.latitude = p.latitude ?? undefined;
+  if (p.longitude !== undefined) u.longitude = p.longitude ?? undefined;
+  if (p.isPublicLocation !== undefined) u.isPublicLocation = p.isPublicLocation;
+  await writeCollection('users', users);
 }
 
 /* ============================ auth tokens ============================ */

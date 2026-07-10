@@ -7,9 +7,9 @@ import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useLang } from '../../i18n/LangContext';
 import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
-import { STYLES } from '../../data/mock';
+import { STYLES, CITIES } from '../../data/mock';
 import {
-  dashboard, requests, offers, reviews, portfolio,
+  dashboard, requests, offers, reviews, portfolio, auth,
   type ApiRequest, type ApiOffer, type ArtistDashboard, type ApiPortfolioItem,
 } from '../../lib/api';
 import { MessagesPage, NotificationsPage, VerificationRow } from '../customer/Customer';
@@ -570,6 +570,92 @@ export function StudioProfile() {
           <span>{user?.createdAt}</span>
         </div>
       </div>
+
+      <LocationEditor />
     </DashboardLayout>
+  );
+}
+
+/* ---------- Public location editor (artist/studio) ---------- */
+function LocationEditor() {
+  const { lang } = useLang();
+  const { user, setUser } = useAuth();
+  const [city, setCity] = useState(user?.city ?? CITIES[0]);
+  const [district, setDistrict] = useState(user?.district ?? '');
+  const [addr, setAddr] = useState(user?.publicAddressLabel ?? '');
+  const [lat, setLat] = useState(user?.latitude != null ? String(user.latitude) : '');
+  const [lng, setLng] = useState(user?.longitude != null ? String(user.longitude) : '');
+  const [isPublic, setIsPublic] = useState(user?.isPublicLocation ?? false);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
+
+  const latNum = lat.trim() ? Number(lat) : null;
+  const lngNum = lng.trim() ? Number(lng) : null;
+  const coordsValid = (!lat.trim() && !lng.trim()) ||
+    (latNum != null && lngNum != null && latNum >= -90 && latNum <= 90 && lngNum >= -180 && lngNum <= 180);
+
+  return (
+    <div className="card card-pad col gap-3" style={{ maxWidth: 520, marginTop: 24 }}>
+      <div className="col gap-1">
+        <strong>{lang === 'tr' ? 'Herkese açık konum' : 'Public location'}</strong>
+        <span className="mono text-muted" style={{ fontSize: 11 }}>
+          {lang === 'tr'
+            ? 'Yalnızca "Haritada göster" açıksa haritada görünür. Ev adresinizi paylaşmayın.'
+            : 'Shown on the discovery map only if "Show on map" is on. Do not share a home address.'}
+        </span>
+      </div>
+      {saved && <span className="mono">✓ {lang === 'tr' ? 'Kaydedildi.' : 'Saved.'}</span>}
+      {error && <span className="mono">⚠ {error}</span>}
+      <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
+        <Select value={city} onChange={(e) => setCity(e.target.value)} options={CITIES.map(c => ({ value: c, label: c }))} />
+      </Field>
+      <Field label={lang === 'tr' ? 'İlçe' : 'District'}>
+        <Input value={district} onChange={(e) => setDistrict(e.target.value)} placeholder={lang === 'tr' ? 'ör. Karaköy' : 'e.g. Karaköy'} />
+      </Field>
+      <Field label={lang === 'tr' ? 'Herkese açık adres etiketi (opsiyonel)' : 'Public address label (optional)'}>
+        <Input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder={lang === 'tr' ? 'ör. Karaköy, tünel yakını' : 'e.g. Karaköy, near the tunnel'} />
+      </Field>
+      <div className="row gap-3 wrap">
+        <Field label={lang === 'tr' ? 'Enlem (lat)' : 'Latitude'}>
+          <Input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="41.0256" inputMode="decimal" />
+        </Field>
+        <Field label={lang === 'tr' ? 'Boylam (lng)' : 'Longitude'}>
+          <Input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="28.9744" inputMode="decimal" />
+        </Field>
+      </div>
+      {!coordsValid && <span className="mono text-muted" style={{ fontSize: 11 }}>{lang === 'tr' ? 'Geçerli koordinat girin veya boş bırakın.' : 'Enter valid coordinates or leave both blank.'}</span>}
+      <label className="row gap-2 center" style={{ cursor: 'pointer' }}>
+        <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+        <span className="mono">{lang === 'tr' ? 'Haritada göster' : 'Show on discovery map'}</span>
+      </label>
+      <div className="row gap-3">
+        <button
+          className="btn btn-sm btn-accent"
+          disabled={busy || !coordsValid}
+          onClick={async () => {
+            setBusy(true); setError(''); setSaved(false);
+            try {
+              const me = await auth.updateProfile({
+                city, district: district.trim(), publicAddressLabel: addr.trim(),
+                latitude: latNum ?? undefined, longitude: lngNum ?? undefined,
+                isPublicLocation: isPublic,
+              });
+              setUser(me);
+              setSaved(true);
+            } catch (e2) {
+              setError(e2 instanceof Error ? e2.message : 'failed');
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? '…' : (lang === 'tr' ? 'Konumu kaydet' : 'Save location')}
+        </button>
+        <a className="mono text-muted" href="https://www.google.com/maps" target="_blank" rel="noreferrer" style={{ fontSize: 11, alignSelf: 'center', textDecoration: 'underline' }}>
+          {lang === 'tr' ? 'Koordinat bul' : 'Find coordinates'}
+        </a>
+      </div>
+    </div>
   );
 }

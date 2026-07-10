@@ -11,6 +11,7 @@ import { useAuth, isArtistRole } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
 import { AvatarBubble } from '../components/Visual';
+import { DiscoveryMap } from '../components/DiscoveryMap';
 
 function Page({ title, italic, eyebrow, num, children }: { title: string; italic?: string; eyebrow?: string; num: string; children: React.ReactNode }) {
   useReveal();
@@ -60,39 +61,84 @@ export function HowItWorks() {
   );
 }
 
-/* ---------- Browse Artists (real registered accounts) ---------- */
+/* ---------- Browse / discover artists (map + list, one Postgres result set) ---------- */
 export function BrowseArtists() {
   const { lang } = useLang();
   const [city, setCity] = useState('all');
-  const [style, setStyle] = useState<string>('all');
+  const [district, setDistrict] = useState('');
+  const [q, setQ] = useState('');
   const [list, setList] = useState<ApiArtist[] | null>(null);
-  useEffect(() => { artistsApi.list().then(setList).catch(() => setList([])); }, []);
-  const filtered = (list ?? []).filter(a =>
-    (city === 'all' || a.city === city) && (style === 'all' || (a.styles ?? []).includes(style)));
+  const [selectedId, setSelectedId] = useState<string>('');
+
+  // The SAME filtered result set drives both the map markers and the list.
+  // Filters are applied server-side (Postgres) so map and list never diverge.
+  useEffect(() => {
+    setList(null);
+    const t = setTimeout(() => {
+      artistsApi.list({
+        city: city === 'all' ? undefined : city,
+        district: district.trim() || undefined,
+        q: q.trim() || undefined,
+      }).then(setList).catch(() => setList([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [city, district, q]);
+
+  const results = list ?? [];
+  const selected = results.find(a => a.id === selectedId) ?? null;
+
   return (
-    <Page num="02" eyebrow={lang === 'tr' ? 'Sanatçılar' : 'Artists'} title={lang === 'tr' ? 'Sanatçıları' : 'Browse'} italic={lang === 'tr' ? 'keşfet.' : 'artists.'}>
+    <Page num="02" eyebrow={lang === 'tr' ? 'Sanatçılar' : 'Artists'} title={lang === 'tr' ? 'Sanatçıları' : 'Discover'} italic={lang === 'tr' ? 'keşfet.' : 'artists.'}>
       <div className="row gap-3 wrap" style={{ marginBottom: 24 }}>
+        <Input placeholder={lang === 'tr' ? 'İsimle ara' : 'Search by name'} value={q} onChange={(e) => setQ(e.target.value)} />
         <Select
           options={[{ value: 'all', label: lang === 'tr' ? 'Tüm şehirler' : 'All cities' }, ...CITIES.map(c => ({ value: c, label: c }))]}
           value={city} onChange={(e) => setCity(e.target.value)}
         />
-        <Select
-          options={[{ value: 'all', label: lang === 'tr' ? 'Tüm stiller' : 'All styles' }, ...STYLES.map(s => ({ value: s.key, label: s[lang] }))]}
-          value={style} onChange={(e) => setStyle(e.target.value)}
-        />
+        <Input placeholder={lang === 'tr' ? 'İlçe' : 'District'} value={district} onChange={(e) => setDistrict(e.target.value)} />
       </div>
+
+      {/* Map — markers come only from `results` (our Postgres API). */}
+      <div style={{ height: 380, marginBottom: 28, border: '1px solid var(--hairline)', position: 'relative' }}>
+        <DiscoveryMap artists={results} onSelect={setSelectedId} selectedId={selectedId} />
+        {selected && (
+          <div className="card card-pad col gap-2" style={{ position: 'absolute', left: 16, bottom: 16, width: 'min(320px, calc(100% - 32px))', zIndex: 2, boxShadow: 'var(--shadow-md)' }}>
+            <div className="row between center">
+              <strong>{selected.name}</strong>
+              <button className="mono text-muted" onClick={() => setSelectedId('')} aria-label="Close">✕</button>
+            </div>
+            <span className="mono text-muted" style={{ fontSize: 11 }}>
+              {selected.role === 'studio' ? 'Studio' : 'Artist'}
+              {selected.district ? ` · ${selected.district}` : ''}{selected.city ? `, ${selected.city}` : ''}
+              {selected.rating != null ? ` · ★ ${selected.rating}` : ''}
+            </span>
+            {selected.previewImages.length > 0 && (
+              <div className="row gap-2" style={{ overflow: 'hidden' }}>
+                {selected.previewImages.slice(0, 3).map((src, i) => (
+                  <img key={i} src={src} alt="" style={{ width: 64, height: 64, objectFit: 'cover', flexShrink: 0 }} />
+                ))}
+              </div>
+            )}
+            <Link to={`/artists/${selected.id}`} className="btn btn-sm btn-accent" style={{ marginTop: 4 }}>
+              {lang === 'tr' ? 'Profili gör' : 'View profile'}
+            </Link>
+          </div>
+        )}
+      </div>
+
+      {/* List — the same result set. */}
       {list === null ? (
         <Loading />
-      ) : filtered.length === 0 ? (
+      ) : results.length === 0 ? (
         <Empty
-          title={lang === 'tr' ? 'Henüz sanatçı yok' : 'No artists yet'}
-          body={lang === 'tr' ? 'Sanatçılar katıldıkça burada listelenecek.' : 'Artists appear here as they join the platform.'}
+          title={lang === 'tr' ? 'Kayıtlı stüdyo bulunamadı' : 'No registered studios found'}
+          body={lang === 'tr' ? 'Bu bölgede henüz kayıtlı stüdyo yok. Filtreleri değiştirmeyi deneyin.' : 'No registered studios found in this area yet. Try adjusting the filters.'}
           cta={lang === 'tr' ? 'Sanatçı olarak katıl' : 'Join as artist'}
           to="/register"
         />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 24 }}>
-          {filtered.map(a => (
+          {results.map(a => (
             <Link key={a.id} to={`/artists/${a.id}`} style={{ display: 'block' }}>
               <article className="card card-pad col gap-3 card-lift" style={{ height: '100%' }}>
                 <div className="row center gap-3">
@@ -100,7 +146,9 @@ export function BrowseArtists() {
                   <div className="col">
                     <strong>{a.name}</strong>
                     <span className="mono text-muted" style={{ fontSize: 11 }}>
-                      {a.role === 'studio' ? 'Studio' : 'Artist'}{a.city ? ` · ${a.city}` : ''}
+                      {a.role === 'studio' ? 'Studio' : 'Artist'}
+                      {a.district ? ` · ${a.district}` : ''}{a.city ? `, ${a.city}` : ''}
+                      {a.hasPublicLocation ? ' · 📍' : ''}
                     </span>
                   </div>
                 </div>
@@ -109,7 +157,7 @@ export function BrowseArtists() {
                   <span className="mono text-muted" style={{ fontSize: 11 }}>{(a.styles ?? []).join(' · ') || '—'}</span>
                   <span className="mono">{a.rating != null ? `★ ${a.rating} (${a.reviewCount})` : (lang === 'tr' ? 'Yeni' : 'New')}</span>
                 </div>
-                <span className="mono text-muted" style={{ fontSize: 11 }}>{lang === 'tr' ? 'Profili gör →' : 'View profile →'}</span>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{a.portfolioCount} {lang === 'tr' ? 'çalışma' : 'works'} · {lang === 'tr' ? 'Profili gör →' : 'View profile →'}</span>
               </article>
             </Link>
           ))}

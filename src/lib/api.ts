@@ -40,7 +40,24 @@ export interface Me {
   bio?: string;
   styles?: string[];
   emailVerified?: boolean;
+  district?: string;
+  publicAddressLabel?: string;
+  latitude?: number;
+  longitude?: number;
+  isPublicLocation?: boolean;
+  hasPublicLocation?: boolean;
   createdAt: string;
+}
+
+export interface ProfileUpdate {
+  bio?: string;
+  city?: string;
+  styles?: string[];
+  district?: string;
+  publicAddressLabel?: string;
+  latitude?: number;
+  longitude?: number;
+  isPublicLocation?: boolean;
 }
 
 export const auth = {
@@ -58,6 +75,8 @@ export const auth = {
     call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'request-reset', email }) }),
   resetPassword: (token: string, password: string) =>
     call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'reset-password', token, password }) }),
+  updateProfile: (input: ProfileUpdate) =>
+    call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'update-profile', ...input }) }),
 };
 
 /* ---------- notifications ---------- */
@@ -189,11 +208,24 @@ export interface ApiArtist {
   name: string;
   role: 'artist' | 'studio';
   city?: string;
+  district?: string;
   styles?: string[];
   bio?: string;
   createdAt: string;
   rating: number | null;
   reviewCount: number;
+  hasPublicLocation: boolean;
+  latitude?: number;
+  longitude?: number;
+  publicAddressLabel?: string;
+  previewImages: string[];
+  portfolioCount: number;
+}
+
+export interface ArtistFilters {
+  city?: string;
+  district?: string;
+  q?: string;
 }
 
 export interface ApiArtistProfile {
@@ -203,7 +235,14 @@ export interface ApiArtistProfile {
 }
 
 export const artists = {
-  list: () => call<ApiArtist[]>('/api/artists'),
+  list: (f: ArtistFilters = {}) => {
+    const p = new URLSearchParams();
+    if (f.city) p.set('city', f.city);
+    if (f.district) p.set('district', f.district);
+    if (f.q) p.set('q', f.q);
+    const qs = p.toString();
+    return call<ApiArtist[]>(`/api/artists${qs ? `?${qs}` : ''}`);
+  },
   get: (id: string) => call<ApiArtistProfile>(`/api/artists?id=${encodeURIComponent(id)}`),
 };
 

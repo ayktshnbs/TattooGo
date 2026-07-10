@@ -10,6 +10,13 @@ CREATE TABLE IF NOT EXISTS users (
   city           TEXT,
   bio            TEXT,
   styles         TEXT[] DEFAULT '{}',
+  -- Public discovery location (artist/studio only). Shown on the map ONLY when
+  -- is_public_location = TRUE. Home addresses stay private unless opted in.
+  district           TEXT,
+  public_address_label TEXT,       -- e.g. "Karaköy, near the tunnel" — never a home address
+  latitude           DOUBLE PRECISION,
+  longitude          DOUBLE PRECISION,
+  is_public_location BOOLEAN NOT NULL DEFAULT FALSE,
   pass_hash      TEXT NOT NULL,
   salt           TEXT NOT NULL,
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -18,6 +25,9 @@ CREATE TABLE IF NOT EXISTS users (
   lock_until     BIGINT,                        -- ms epoch; login lockout
   created_at     TEXT NOT NULL
 );
+
+-- Discovery: filter registered artists/studios by city/district quickly.
+CREATE INDEX IF NOT EXISTS users_discovery_idx ON users(role, city, district);
 
 -- One-time tokens for email verification and password reset (hash only).
 CREATE TABLE IF NOT EXISTS auth_tokens (

@@ -7,6 +7,7 @@ import {
 import {
   findUserByEmail, createUser, setEmailVerified, setPassword,
   recordLoginFailure, clearLoginFailures, isLocked, createToken, consumeToken,
+  updateProfile, getUserById,
 } from './_lib/repo.js';
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 
@@ -153,6 +154,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await setPassword(userId, passHash, salt); // bumps session epoch → all sessions out
       clearSessionCookie(res);
       return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'update-profile') {
+      const me = await getSessionUser(req);
+      if (!me) return res.status(401).json({ error: 'sign in required' });
+      const { bio, city, styles, district, publicAddressLabel, latitude, longitude, isPublicLocation } = req.body ?? {};
+
+      const isArtist = me.role === 'artist' || me.role === 'studio';
+      // Location fields are artist/studio-only; customers can't set a map pin.
+      if (!isArtist && (district != null || latitude != null || longitude != null || publicAddressLabel != null || isPublicLocation != null)) {
+        return res.status(403).json({ error: 'only artists/studios can set a public location' });
+      }
+      const lat = latitude == null ? undefined : Number(latitude);
+      const lng = longitude == null ? undefined : Number(longitude);
+      if (lat !== undefined && (!Number.isFinite(lat) || lat < -90 || lat > 90)) {
+        return res.status(400).json({ error: 'latitude out of range' });
+      }
+      if (lng !== undefined && (!Number.isFinite(lng) || lng < -180 || lng > 180)) {
+        return res.status(400).json({ error: 'longitude out of range' });
+      }
+
+      await updateProfile(me.id, {
+        bio: typeof bio === 'string' ? bio.trim().slice(0, 500) : undefined,
+        city: typeof city === 'string' && city.trim() ? city.trim().slice(0, 60) : undefined,
+        styles: Array.isArray(styles) ? styles.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined,
+        district: typeof district === 'string' ? district.trim().slice(0, 60) : undefined,
+        publicAddressLabel: typeof publicAddressLabel === 'string' ? publicAddressLabel.trim().slice(0, 120) : undefined,
+        latitude: lat,
+        longitude: lng,
+        isPublicLocation: typeof isPublicLocation === 'boolean' ? isPublicLocation : undefined,
+      });
+      const updated = await getUserById(me.id);
+      return res.status(200).json(updated ? ownUser(updated) : { ok: true });
     }
 
     return res.status(400).json({ error: 'unknown action' });

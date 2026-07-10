@@ -54,7 +54,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const artists = await listArtistsPublic();
+    const artists = await listArtistsPublic({
+      city: typeof req.query.city === 'string' ? req.query.city : undefined,
+      district: typeof req.query.district === 'string' ? req.query.district : undefined,
+      q: typeof req.query.q === 'string' ? req.query.q : undefined,
+    });
     res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=120');
     return res.status(200).json(artists);
   } catch (err) {
