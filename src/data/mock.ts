@@ -17,7 +17,8 @@ export const STYLES: { key: TattooStyle; en: string; tr: string }[] = [
   { key: 'color',       en: 'Color',       tr: 'Renkli' },
 ];
 
-export const CITIES = ['Istanbul', 'Ankara', 'Izmir', 'Antalya', 'Bursa', 'Eskişehir', 'Berlin', 'Amsterdam', 'Lisbon'];
+// Turkey-only platform: cities are the 81 official provinces, nothing else.
+export { TR_CITIES as CITIES } from './cities';
 
 export const SECTION_NUMBERS = {
   artists: '01', trust: '02', cta: '03',

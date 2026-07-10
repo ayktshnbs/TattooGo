@@ -592,8 +592,10 @@ function LocationEditor() {
 
   const latNum = lat.trim() ? Number(lat) : null;
   const lngNum = lng.trim() ? Number(lng) : null;
+  // Turkey-only: pins must fall inside approximate Turkey bounds (backend enforces too).
   const coordsValid = (!lat.trim() && !lng.trim()) ||
-    (latNum != null && lngNum != null && latNum >= -90 && latNum <= 90 && lngNum >= -180 && lngNum <= 180);
+    (latNum != null && lngNum != null &&
+     latNum >= 35.5 && latNum <= 42.5 && lngNum >= 25.5 && lngNum <= 45.0);
 
   return (
     <div className="card card-pad col gap-3" style={{ maxWidth: 520, marginTop: 24 }}>
@@ -624,7 +626,7 @@ function LocationEditor() {
           <Input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="28.9744" inputMode="decimal" />
         </Field>
       </div>
-      {!coordsValid && <span className="mono text-muted" style={{ fontSize: 11 }}>{lang === 'tr' ? 'Geçerli koordinat girin veya boş bırakın.' : 'Enter valid coordinates or leave both blank.'}</span>}
+      {!coordsValid && <span className="mono text-muted" style={{ fontSize: 11 }}>{lang === 'tr' ? 'Türkiye sınırları içinde geçerli koordinat girin veya boş bırakın.' : 'Enter valid coordinates within Turkey or leave both blank.'}</span>}
       <label className="row gap-2 center" style={{ cursor: 'pointer' }}>
         <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
         <span className="mono">{lang === 'tr' ? 'Haritada göster' : 'Show on discovery map'}</span>

@@ -131,7 +131,7 @@ export function BrowseArtists() {
         <Loading />
       ) : results.length === 0 ? (
         <Empty
-          title={lang === 'tr' ? 'Kayıtlı stüdyo bulunamadı' : 'No registered studios found'}
+          title={lang === 'tr' ? 'Bu şehirde kayıtlı stüdyo bulunamadı.' : 'No registered studios found in this city.'}
           body={lang === 'tr' ? 'Bu bölgede henüz kayıtlı stüdyo yok. Filtreleri değiştirmeyi deneyin.' : 'No registered studios found in this area yet. Try adjusting the filters.'}
           cta={lang === 'tr' ? 'Sanatçı olarak katıl' : 'Join as artist'}
           to="/register"

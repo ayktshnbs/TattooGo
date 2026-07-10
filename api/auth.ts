@@ -10,6 +10,7 @@ import {
   updateProfile, getUserById,
 } from './_lib/repo.js';
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
+import { isTurkishCity, isInTurkeyBounds } from './_lib/cities.js';
 
 /**
  * Authentication.
@@ -65,6 +66,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof role !== 'string' || !ROLES.has(role)) {
         return res.status(400).json({ error: 'role must be customer, artist or studio' });
       }
+      // Turkey-only platform: city, when given, must be one of the 81 provinces.
+      const cityVal = typeof city === 'string' && city.trim() ? city.trim() : undefined;
+      if (cityVal && !isTurkishCity(cityVal)) {
+        return res.status(400).json({ error: 'city must be a Turkish province' });
+      }
 
       const { salt, passHash } = hashPassword(password);
       const user: UserRow = {
@@ -72,7 +78,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         email: email.toLowerCase().trim(),
         name: name.trim(),
         role: role as UserRow['role'],
-        city: typeof city === 'string' && city.trim() ? city.trim().slice(0, 60) : undefined,
+        city: cityVal,
         bio: typeof bio === 'string' && bio.trim() ? bio.trim().slice(0, 500) : undefined,
         styles: Array.isArray(styles) ? styles.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined,
         passHash,
@@ -166,6 +172,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!isArtist && (district != null || latitude != null || longitude != null || publicAddressLabel != null || isPublicLocation != null)) {
         return res.status(403).json({ error: 'only artists/studios can set a public location' });
       }
+      // Turkey-only platform: city must be one of the 81 provinces.
+      const cityVal = typeof city === 'string' && city.trim() ? city.trim() : undefined;
+      if (cityVal && !isTurkishCity(cityVal)) {
+        return res.status(400).json({ error: 'city must be a Turkish province' });
+      }
       const lat = latitude == null ? undefined : Number(latitude);
       const lng = longitude == null ? undefined : Number(longitude);
       if (lat !== undefined && (!Number.isFinite(lat) || lat < -90 || lat > 90)) {
@@ -174,10 +185,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (lng !== undefined && (!Number.isFinite(lng) || lng < -180 || lng > 180)) {
         return res.status(400).json({ error: 'longitude out of range' });
       }
+      // Coordinates come as a pair so the Turkey check can never be half-bypassed.
+      if ((lat === undefined) !== (lng === undefined)) {
+        return res.status(400).json({ error: 'provide latitude and longitude together' });
+      }
+      // Public map pins must fall inside Turkey.
+      if (lat !== undefined && lng !== undefined && !isInTurkeyBounds(lat, lng)) {
+        return res.status(400).json({ error: 'coordinates must be within Turkey' });
+      }
 
       await updateProfile(me.id, {
         bio: typeof bio === 'string' ? bio.trim().slice(0, 500) : undefined,
-        city: typeof city === 'string' && city.trim() ? city.trim().slice(0, 60) : undefined,
+        city: cityVal,
         styles: Array.isArray(styles) ? styles.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined,
         district: typeof district === 'string' ? district.trim().slice(0, 60) : undefined,
         publicAddressLabel: typeof publicAddressLabel === 'string' ? publicAddressLabel.trim().slice(0, 120) : undefined,

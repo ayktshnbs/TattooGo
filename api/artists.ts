@@ -4,6 +4,7 @@ import {
   listReviewsByArtist, countCompletedJobsByArtist,
 } from './_lib/repo.js';
 import { publicUser } from './_lib/auth.js';
+import { isTurkishCity } from './_lib/cities.js';
 
 /**
  * Public artist surface — no session required, safe for anonymous browsing.
@@ -54,8 +55,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    // Turkey-only platform: a city filter must be one of the 81 provinces.
+    const cityFilter = typeof req.query.city === 'string' && req.query.city ? req.query.city : undefined;
+    if (cityFilter && !isTurkishCity(cityFilter)) {
+      return res.status(400).json({ error: 'city must be a Turkish province' });
+    }
     const artists = await listArtistsPublic({
-      city: typeof req.query.city === 'string' ? req.query.city : undefined,
+      city: cityFilter,
       district: typeof req.query.district === 'string' ? req.query.district : undefined,
       q: typeof req.query.q === 'string' ? req.query.q : undefined,
     });
