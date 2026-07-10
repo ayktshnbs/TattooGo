@@ -17,6 +17,7 @@ export function Header({ tone = 'light', overHero = false }: { tone?: 'light' | 
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => typeof window === 'undefined' ? true : window.innerWidth >= DESKTOP_BP);
+  const [isTablet, setIsTablet] = useState(() => typeof window === 'undefined' ? false : window.innerWidth >= 640);
   const loc = useLocation();
 
   useEffect(() => {
@@ -28,10 +29,12 @@ export function Header({ tone = 'light', overHero = false }: { tone?: 'light' | 
 
   useEffect(() => {
     const mq = window.matchMedia(`(min-width: ${DESKTOP_BP}px)`);
-    const apply = () => setIsDesktop(mq.matches);
+    const mqTab = window.matchMedia('(min-width: 640px)');
+    const apply = () => { setIsDesktop(mq.matches); setIsTablet(mqTab.matches); };
     apply();
     mq.addEventListener('change', apply);
-    return () => mq.removeEventListener('change', apply);
+    mqTab.addEventListener('change', apply);
+    return () => { mq.removeEventListener('change', apply); mqTab.removeEventListener('change', apply); };
   }, []);
 
   useEffect(() => { setMenuOpen(false); }, [loc.pathname]);
@@ -96,6 +99,13 @@ export function Header({ tone = 'light', overHero = false }: { tone?: 'light' | 
             </div>
           ) : (
             <div className="row center gap-3">
+              {/* The two orientation links stay visible on tablets; phones keep the hamburger only. */}
+              {isTablet && (
+                <>
+                  <NavLink to="/how-it-works">{t('nav.howItWorks')}</NavLink>
+                  <NavLink to="/artists">{t('nav.artists')}</NavLink>
+                </>
+              )}
               <LanguageSwitcher tone={isDark ? 'dark' : 'light'} />
               <button
                 aria-label="Open menu"

@@ -27,7 +27,7 @@ export function Footer() {
     {
       label: lang === 'tr' ? 'Destek' : 'Support',
       items: [
-        { to: '/faq', label: 'FAQ' },
+        { to: '/faq', label: lang === 'tr' ? 'SSS' : 'FAQ' },
         { to: '/contact', label: lang === 'tr' ? 'İletişim' : 'Contact' },
         { to: '/about', label: lang === 'tr' ? 'Hakkında' : 'About' },
         { to: '/terms', label: lang === 'tr' ? 'Şartlar' : 'Terms' },

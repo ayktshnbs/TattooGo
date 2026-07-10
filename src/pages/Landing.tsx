@@ -67,10 +67,36 @@ export function Landing() {
           <h1 className="display notranslate" translate="no" style={{ margin: '-6px 0 0', color: '#F5F2EB', fontSize: 'clamp(40px, 7vw, 84px)', letterSpacing: '-0.01em', lineHeight: 0.95 }}>
             Tattoo<span className="italic">Go</span>
           </h1>
+          {/* Value proposition — the one sentence that says what this is. */}
+          <p style={{ margin: '4px 0 0', color: 'rgba(245,242,235,0.82)', fontSize: 'clamp(14px, 1.6vw, 17px)', lineHeight: 1.55, maxWidth: 460 }}>
+            {lang === 'tr'
+              ? 'Dövme fikrini paylaş, doğrulanmış sanatçılardan gerçek teklifler al.'
+              : 'Share your tattoo idea and receive real offers from verified artists.'}
+          </p>
           <div className="row gap-3 wrap" style={{ justifyContent: 'center', marginTop: 8 }}>
             <Link to="/dashboard/create-request" className="btn" style={{ background: '#F5F2EB', color: '#000', borderColor: '#F5F2EB' }}>{t('cta.createRequest')}<span className="dot" /></Link>
             <Link to="/register" className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
           </div>
+        </div>
+      </section>
+
+      {/* How it works, in one glance — three compact steps so a first-time
+          visitor understands the marketplace before the feed. */}
+      <section style={{ borderBottom: '1px solid var(--hairline)' }}>
+        <div className="container" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 1 }}>
+          {[
+            { num: '01', tr: 'Fikrini paylaş', en: 'Share your idea', trBody: 'Dövme isteğini kısaca anlat.', enBody: 'Describe the tattoo you want.' },
+            { num: '02', tr: 'Teklifleri al', en: 'Receive offers', trBody: 'Doğrulanmış sanatçılar fiyat ve tarih önersin.', enBody: 'Verified artists reply with price and date.' },
+            { num: '03', tr: 'Sanatçını seç', en: 'Choose your artist', trBody: 'Portfolyoları karşılaştır, randevunu ayarla.', enBody: 'Compare portfolios and book your session.' },
+          ].map(s => (
+            <Link key={s.num} to="/how-it-works" className="row gap-4 center" style={{ padding: 'clamp(20px, 3vw, 32px) clamp(4px, 1vw, 16px)' }}>
+              <span className="mono" style={{ color: 'var(--accent)' }}>{s.num}</span>
+              <span className="col" style={{ gap: 2 }}>
+                <span className="display" style={{ fontSize: 19 }}>{lang === 'tr' ? s.tr : s.en}</span>
+                <span className="text-muted" style={{ fontSize: 13 }}>{lang === 'tr' ? s.trBody : s.enBody}</span>
+              </span>
+            </Link>
+          ))}
         </div>
       </section>
 

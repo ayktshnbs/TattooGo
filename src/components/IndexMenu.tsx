@@ -7,9 +7,9 @@ interface Props {
   onClose: () => void;
 }
 
-const COLUMNS: { label: string; items: { to: string; label: { en: string; tr: string } }[] }[] = [
+const COLUMNS: { label: { en: string; tr: string }; items: { to: string; label: { en: string; tr: string } }[] }[] = [
   {
-    label: 'Discover',
+    label: { en: 'Discover', tr: 'Keşfet' },
     items: [
       { to: '/',                label: { en: 'Landing',           tr: 'Anasayfa' } },
       { to: '/how-it-works',    label: { en: 'How it works',      tr: 'Nasıl çalışır' } },
@@ -19,7 +19,7 @@ const COLUMNS: { label: string; items: { to: string; label: { en: string; tr: st
     ],
   },
   {
-    label: 'Customer',
+    label: { en: 'Customer', tr: 'Müşteri' },
     items: [
       { to: '/dashboard',                  label: { en: 'Dashboard',           tr: 'Panel' } },
       { to: '/dashboard/create-request',   label: { en: 'Create request',      tr: 'İstek oluştur' } },
@@ -31,7 +31,7 @@ const COLUMNS: { label: string; items: { to: string; label: { en: string; tr: st
     ],
   },
   {
-    label: 'Artist & studio',
+    label: { en: 'Artist & studio', tr: 'Sanatçı & stüdyo' },
     items: [
       { to: '/studio',                 label: { en: 'Studio home',        tr: 'Stüdyo anasayfa' } },
       { to: '/studio/tattoos',         label: { en: 'My tattoos',         tr: 'Dövmelerim' } },
@@ -48,7 +48,7 @@ const COLUMNS: { label: string; items: { to: string; label: { en: string; tr: st
     ],
   },
   {
-    label: 'Support',
+    label: { en: 'Support', tr: 'Destek' },
     items: [
       { to: '/faq',           label: { en: 'FAQ',          tr: 'SSS' } },
       { to: '/contact',       label: { en: 'Contact',      tr: 'İletişim' } },
@@ -103,8 +103,8 @@ export function IndexMenu({ open, onClose }: Props) {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 48 }}>
           {COLUMNS.map(col => (
-            <div key={col.label} className="col" style={{ gap: 14 }}>
-              <span className="mono text-muted">{col.label}</span>
+            <div key={col.label.en} className="col" style={{ gap: 14 }}>
+              <span className="mono text-muted">{col.label[lang]}</span>
               <hr className="hr" />
               {col.items.map(it => (
                 <Link

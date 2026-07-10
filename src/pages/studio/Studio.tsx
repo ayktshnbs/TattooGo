@@ -7,7 +7,7 @@ import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useLang } from '../../i18n/LangContext';
 import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
-import { STYLES, CITIES } from '../../data/mock';
+import { STYLES, CITIES, PLACEMENTS, taxonomyLabel } from '../../data/mock';
 import {
   dashboard, requests, offers, reviews, portfolio, auth,
   type ApiRequest, type ApiOffer, type ArtistDashboard, type ApiPortfolioItem,
@@ -56,7 +56,7 @@ function OpenRequestCard({ r, lang }: { r: ApiRequest; lang: string }) {
         <span className="mono text-muted" style={{ fontSize: 11 }}>{r.createdAt}</span>
       </div>
       <span className="mono text-muted" style={{ fontSize: 11 }}>
-        {r.customerName} · {r.style} · {r.placement} · {r.size}{r.city ? ` · ${r.city}` : ''}
+        {r.customerName} · {r.style} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')} · {r.size}{r.city ? ` · ${r.city}` : ''}
       </span>
       <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.description.slice(0, 140)}{r.description.length > 140 ? '…' : ''}</p>
       {r.referenceUrl && <img src={r.referenceUrl} alt="" style={{ width: '100%', maxHeight: 220, objectFit: 'cover' }} />}
@@ -284,7 +284,7 @@ export function GiveOffer() {
                     <strong>{r.title}</strong>
                     <span className="mono text-muted" style={{ fontSize: 11 }}>{r.offerCount} {lang === 'tr' ? 'teklif' : 'offers'}</span>
                   </div>
-                  <span className="mono text-muted" style={{ fontSize: 11 }}>{r.customerName} · {r.style} · {r.placement}{r.city ? ` · ${r.city}` : ''}</span>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{r.customerName} · {r.style} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')}{r.city ? ` · ${r.city}` : ''}</span>
                 </div>
               </button>
             ))}

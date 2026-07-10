@@ -14,7 +14,8 @@ const LangContext = createContext<Ctx | null>(null);
 export function LangProvider({ children }: { children: React.ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
     const stored = typeof window !== 'undefined' ? localStorage.getItem('tg.lang') : null;
-    return (stored === 'tr' || stored === 'en') ? stored : 'en';
+    // Turkish-first product: TR is the default for new visitors.
+    return (stored === 'tr' || stored === 'en') ? stored : 'tr';
   });
 
   const setLang = useCallback((l: Lang) => {

@@ -7,7 +7,7 @@ import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useLang } from '../../i18n/LangContext';
 import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
-import { STYLES, CITIES } from '../../data/mock';
+import { STYLES, CITIES, PLACEMENTS, INK_COLORS, taxonomyLabel } from '../../data/mock';
 import { fileToUpload } from '../../data/uploads';
 import {
   dashboard, requests, offers, messages, reviews, notifications, auth as authApi,
@@ -57,7 +57,7 @@ function RequestRowCard({ r, lang, onCancel }: { r: ApiRequest; lang: string; on
         <span className="tag tag-soft">{STATUS_LABEL[r.status]?.[lang as 'en' | 'tr'] ?? r.status}</span>
       </div>
       <span className="mono text-muted" style={{ fontSize: 11 }}>
-        {r.style} · {r.placement} · {r.size}{r.city ? ` · ${r.city}` : ''} · {r.createdAt}
+        {r.style} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')} · {r.size}{r.city ? ` · ${r.city}` : ''} · {r.createdAt}
       </span>
       <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.description.slice(0, 160)}{r.description.length > 160 ? '…' : ''}</p>
       <div className="row between center">
@@ -144,9 +144,7 @@ export function CustomerHome() {
 }
 
 /* ---------- Create request ---------- */
-const PLACEMENTS = ['arm', 'forearm', 'shoulder', 'chest', 'back', 'leg', 'thigh', 'ankle', 'hand', 'neck', 'ribs'];
 const SIZES = ['xs', 'sm', 'md', 'lg', 'xl'];
-const COLORS = ['black', 'shaded', 'color'];
 
 export function CreateRequest() {
   useReveal();
@@ -208,13 +206,13 @@ export function CreateRequest() {
         </Field>
         <div className="row gap-3 wrap">
           <Field label={lang === 'tr' ? 'Bölge' : 'Placement'}>
-            <Select value={placement} onChange={(e) => setPlacement(e.target.value)} options={PLACEMENTS.map(p => ({ value: p, label: p }))} />
+            <Select value={placement} onChange={(e) => setPlacement(e.target.value)} options={PLACEMENTS.map(p => ({ value: p.key, label: p[lang] }))} />
           </Field>
           <Field label={lang === 'tr' ? 'Boyut' : 'Size'}>
             <Select value={size} onChange={(e) => setSize(e.target.value)} options={SIZES.map(s => ({ value: s, label: s.toUpperCase() }))} />
           </Field>
           <Field label={lang === 'tr' ? 'Renk' : 'Color'}>
-            <Select value={color} onChange={(e) => setColor(e.target.value)} options={COLORS.map(c => ({ value: c, label: c }))} />
+            <Select value={color} onChange={(e) => setColor(e.target.value)} options={INK_COLORS.map(c => ({ value: c.key, label: c[lang] }))} />
           </Field>
           <Field label={lang === 'tr' ? 'Şehir' : 'City'}>
             <Select value={city} onChange={(e) => setCity(e.target.value)} options={CITIES.map(c => ({ value: c, label: c }))} />
