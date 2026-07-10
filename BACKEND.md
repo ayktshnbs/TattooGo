@@ -37,6 +37,7 @@ Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`,
 | `RESEND_API_KEY` | for email | Resend API key — without it, emails are skipped (logged), actions still succeed |
 | `RESEND_FROM_EMAIL` | optional | e.g. `TattooGo <no-reply@yourdomain.com>`; defaults to `onboarding@resend.dev` (works before domain verification) |
 | `VITE_API_PROXY` | dev only | localhost /api proxy target (defaults to production) |
+| `VITE_GOOGLE_MAPS_API_KEY` | for map | browser Maps JS key (domain-restricted). Unset → list-only, map shows placeholder. **No Places API used.** |
 
 ## Resend setup (one-time)
 
@@ -162,6 +163,35 @@ JSON under `db/` and `feed/`.)*
 | Browse designs | `GET /api/uploads` | anyone | same approved feed |
 
 Route: `/artists/:artistId` (public page). Directory cards link to it.
+
+### Map discovery (registered artists/studios only)
+
+`/artists` is a map + list discovery page. **The map and list are driven by
+the SAME `GET /api/artists?city=&district=&q=` Postgres result set — they can
+never diverge.** Filtering happens in Postgres (indexed on role/city/district).
+
+**Google Maps is the display layer ONLY.** Markers are placed exclusively from
+our API response. We do **not** use the Google Places API, Text Search, or
+Nearby Search — no external/unregistered business ever appears. The loader
+requests the Maps JS library with **no `&libraries=places`**. Verified: the
+production bundle contains **zero** Places references.
+
+**Env:** `VITE_GOOGLE_MAPS_API_KEY` (browser-safe, build-time public — must be
+**domain-restricted** in Google Cloud). No server Maps key. If the key is
+unset, the map code is dead-code-eliminated and the UI shows a "Map
+unavailable" placeholder; the list still works. Adding the key + redeploy
+activates the map. Geocoding is not called per request — artists save
+`latitude`/`longitude` manually in their profile (optional Geocoding API is a
+future add, never on the search path).
+
+**Location visibility:** a marker/coords appear only when the artist set
+`is_public_location = TRUE` **and** saved coordinates. Otherwise only the
+approximate city/district label is shown (never exact coords, never a home
+address). Customers set no location — the `update-profile` action rejects
+location fields from non-artist roles.
+
+Marker click → a card with name, rating, district/city, up to 3 approved
+portfolio previews, and a "View profile" button → `/artists/:artistId`.
 
 **Portfolio moderation visibility:** an upload starts `pending` (hidden
 everywhere public — feed *and* profile), visible only to its own artist via
