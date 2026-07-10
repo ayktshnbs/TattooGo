@@ -28,9 +28,10 @@ input, textarea, select { font: inherit; color: inherit; }
   letter-spacing: 0;
   line-height: 1.05;
 }
-.display-xl { font-size: clamp(56px, 11vw, 180px); }
-.display-lg { font-size: clamp(44px, 7vw, 96px); }
-.display-md { font-size: clamp(32px, 4.5vw, 56px); }
+.display-xl { font-size: clamp(48px, 10vw, 150px); }
+.display-lg { font-size: clamp(34px, 5.5vw, 68px); }
+.display-md { font-size: clamp(26px, 3.5vw, 42px); }
+.display-sm { font-size: clamp(22px, 2.6vw, 30px); }
 
 .italic { font-style: italic; }
 
@@ -109,9 +110,9 @@ input, textarea, select { font: inherit; color: inherit; }
   display: flex; flex-direction: column; gap: 8px;
 }
 .field > label { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
-.field .input,
-.field .textarea,
-.field .select {
+.input,
+.textarea,
+.select {
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--hairline-strong);
@@ -123,9 +124,9 @@ input, textarea, select { font: inherit; color: inherit; }
   min-width: 0; /* form controls have an intrinsic width; let them shrink in narrow grids */
   font-family: var(--font-body);
 }
-.field .textarea { resize: vertical; min-height: 90px; }
-.field .input:focus, .field .textarea:focus, .field .select:focus { outline: none; border-bottom-color: var(--ink); }
-.field .input::placeholder, .field .textarea::placeholder { color: var(--muted-2); }
+.textarea { resize: vertical; min-height: 90px; }
+.input:focus, .textarea:focus, .select:focus { outline: none; border-bottom-color: var(--ink); }
+.input::placeholder, .textarea::placeholder { color: var(--muted-2); }
 
 /* Cards */
 .card {

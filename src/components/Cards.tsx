@@ -16,7 +16,7 @@ export function TattooCard({ design }: { design: TattooDesign }) {
           <span className="mono text-muted">{design.style}</span>
           <span className="mono text-muted">♡ {design.likes}</span>
         </div>
-        <h3 className="display" style={{ fontSize: 22, margin: 0 }}>{design.title}</h3>
+        <h3 className="display" style={{ fontSize: 19, margin: 0 }}>{design.title}</h3>
         <span className="mono text-muted">by {design.artistName}{design.city ? ` · ${design.city}` : ''}</span>
         {design.price && <span className="mono text-accent">₺{design.price.toLocaleString()}</span>}
       </div>
@@ -43,7 +43,7 @@ export function ArtistCard({ artist, dark, large }: { artist: ArtistProfile; dar
           <span className="mono" style={{ color: dark ? 'var(--night-muted)' : 'var(--muted)' }}>{artist.city}</span>
           {artist.verified && <span className="tag tag-accent">Verified</span>}
         </div>
-        <h3 className="display" style={{ fontSize: large ? 32 : 24, margin: 0 }}>{artist.name}</h3>
+        <h3 className="display" style={{ fontSize: large ? 26 : 21, margin: 0 }}>{artist.name}</h3>
         <span className="mono" style={{ color: dark ? 'var(--night-muted)' : 'var(--muted)' }}>{artist.handle}</span>
         <p style={{ margin: 0, color: dark ? 'var(--night-muted)' : 'var(--muted)' }}>{artist.bio}</p>
         <div className="row wrap gap-2" style={{ marginTop: 'auto' }}>
@@ -68,7 +68,7 @@ export function StudioCard({ studio }: { studio: StudioProfile }) {
           <span className="mono text-muted">{studio.city} · est. {studio.established}</span>
           {studio.verified && <span className="tag tag-accent">Verified</span>}
         </div>
-        <h3 className="display" style={{ fontSize: 26, margin: 0 }}>{studio.name}</h3>
+        <h3 className="display" style={{ fontSize: 21, margin: 0 }}>{studio.name}</h3>
         <p className="text-muted" style={{ margin: 0 }}>{studio.bio}</p>
         <div className="row between center" style={{ marginTop: 12 }}>
           <span className="mono">★ {studio.rating} <span className="text-muted">· {studio.reviewCount}</span></span>
@@ -98,7 +98,7 @@ export function RequestCard({ request, dark }: { request: TattooRequest; dark?: 
         <span className="mono" style={{ color: dark ? 'var(--night-muted)' : 'var(--muted)' }}>#{request.id.toUpperCase()} · {request.style}</span>
         <span className="status" style={{ color: 'var(--accent)' }}>{statusLabels[request.status][lang]}</span>
       </div>
-      <h3 className="display" style={{ fontSize: 24, margin: 0 }}>{request.title}</h3>
+      <h3 className="display" style={{ fontSize: 20, margin: 0 }}>{request.title}</h3>
       <p style={{ margin: 0, color: dark ? 'var(--night-muted)' : 'var(--muted)' }}>{request.description}</p>
       <div className="row wrap gap-2">
         <span className="tag tag-soft">{request.placement}</span>
@@ -128,7 +128,7 @@ export function OfferCard({ offer, accentOnAccepted = true }: { offer: Offer; ac
           <AvatarBubble name={offer.artistName} />
           <div className="col">
             <span className="mono text-muted">{offer.artistCity} · ★ {offer.rating} ({offer.reviewCount})</span>
-            <strong style={{ fontFamily: 'var(--font-display)', fontSize: 20 }}>{offer.artistName}</strong>
+            <strong style={{ fontFamily: 'var(--font-display)', fontSize: 17 }}>{offer.artistName}</strong>
           </div>
         </div>
         <span className={`status status-${offer.status}`}>{offer.status}</span>
@@ -166,9 +166,9 @@ function KV({ label, value, accent }: { label: string; value: string; accent?: b
 /* ------------ Stats card ------------ */
 export function StatsCard({ label, value, delta }: { label: string; value: string; delta?: string }) {
   return (
-    <div className="card card-pad col gap-2" style={{ minHeight: 140 }}>
+    <div className="card card-pad col gap-2" style={{ minHeight: 104 }}>
       <span className="mono text-muted">{label}</span>
-      <span className="display" style={{ fontSize: 44, margin: 0, lineHeight: 1 }}>{value}</span>
+      <span className="display" style={{ fontSize: 32, margin: 0, lineHeight: 1 }}>{value}</span>
       {delta && <span className="mono text-accent">{delta}</span>}
     </div>
   );
@@ -218,7 +218,7 @@ export function AppointmentCard({ ap }: { ap: Appointment }) {
         <span className="mono text-muted">{ap.date} · {ap.time} · {ap.durationMin}m</span>
         <span className={`status status-${ap.status === 'today' ? 'sent' : ap.status === 'completed' ? 'completed' : 'viewed'}`}>{ap.status}</span>
       </div>
-      <h3 className="display" style={{ fontSize: 22, margin: 0 }}>{ap.requestTitle}</h3>
+      <h3 className="display" style={{ fontSize: 19, margin: 0 }}>{ap.requestTitle}</h3>
       <span className="text-muted">{lang === 'tr' ? 'Sanatçı' : 'Artist'}: {ap.artistName}</span>
       <span className="mono text-muted">{ap.location}</span>
     </article>
@@ -235,7 +235,7 @@ export function CampaignCard({ c }: { c: Campaign }) {
           <span className="mono text-muted">{c.startDate} → {c.endDate}</span>
           <span className={`status ${c.active ? 'status-accepted' : 'status-expired'}`}>{c.active ? 'active' : 'passive'}</span>
         </div>
-        <h3 className="display" style={{ fontSize: 26, margin: 0 }}>{c.title}</h3>
+        <h3 className="display" style={{ fontSize: 21, margin: 0 }}>{c.title}</h3>
         <p className="text-muted" style={{ margin: 0 }}>{c.description}</p>
         <div className="row between center" style={{ marginTop: 8 }}>
           <span className="mono text-accent">-{c.discount}%</span>
@@ -254,7 +254,7 @@ export function ReviewCard({ r }: { r: Review }) {
         <span className="mono text-muted">{r.date}</span>
         <span className="mono">{'★'.repeat(r.rating)}<span className="text-muted">{'★'.repeat(5 - r.rating)}</span></span>
       </div>
-      <p style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 20, fontStyle: 'italic', lineHeight: 1.35 }}>“{r.text}”</p>
+      <p style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 17, fontStyle: 'italic', lineHeight: 1.45 }}>“{r.text}”</p>
       <div className="row between center" style={{ marginTop: 6 }}>
         <span>{r.authorName}</span>
         <span className="mono text-muted">{r.artistName} · {r.tattooTitle}</span>
@@ -270,7 +270,7 @@ export function ProfileCard({ name, role, city, rating, followers }: { name: str
       <AvatarBubble name={name} size={64} />
       <div className="col" style={{ flex: 1 }}>
         <span className="mono text-muted">{role} · {city}</span>
-        <h3 className="display" style={{ fontSize: 26, margin: 0 }}>{name}</h3>
+        <h3 className="display" style={{ fontSize: 21, margin: 0 }}>{name}</h3>
         <div className="row gap-3" style={{ marginTop: 6 }}>
           {rating && <span className="mono">★ {rating}</span>}
           {followers && <span className="mono text-muted">{followers.toLocaleString()} followers</span>}
@@ -303,7 +303,7 @@ export function MaterialCard({ m }: { m: MaterialProduct }) {
     <article className="card card-pad col gap-2">
       <Swatch id={`sw-${(m.id.length % 6) + 1}`} ratio={1.4} />
       <span className="mono text-muted">{m.brand} · {m.category}</span>
-      <h4 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 18 }}>{m.name}</h4>
+      <h4 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 16 }}>{m.name}</h4>
       <div className="row between center" style={{ marginTop: 8 }}>
         <span className="mono">₺{m.price.toLocaleString()}</span>
         <span className="mono text-muted">{m.stock} in stock</span>

@@ -108,7 +108,7 @@ export function CustomerHome() {
       {!data && !error && <Loading />}
       {data && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 36 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 32 }}>
             <StatsCard label={lang === 'tr' ? 'Aktif istek' : 'Active requests'} value={String(data.stats.activeRequests)} />
             <StatsCard label={lang === 'tr' ? 'Açık teklif' : 'Open offers'} value={String(data.stats.openOffers)} />
             <StatsCard label={lang === 'tr' ? 'Yaklaşan' : 'Upcoming'} value={String(data.stats.upcoming)} />

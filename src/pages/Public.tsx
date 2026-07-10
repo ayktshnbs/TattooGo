@@ -18,11 +18,11 @@ function Page({ title, italic, eyebrow, num, children }: { title: string; italic
   return (
     <>
       <Header />
-      <div style={{ paddingTop: 120 }}>
-        <section className="section-tight">
+      <div style={{ paddingTop: 'clamp(84px, 10vw, 110px)' }}>
+        <section style={{ paddingBlock: 'clamp(24px, 4vw, 48px)' }}>
           <div className="container">
-            <SectionHeader num={num} eyebrow={eyebrow} title={title} italic={italic} />
-            <div style={{ marginTop: 48 }}>{children}</div>
+            <SectionHeader num={num} eyebrow={eyebrow} title={title} italic={italic} size="md" />
+            <div style={{ marginTop: 36 }}>{children}</div>
           </div>
         </section>
       </div>
@@ -45,9 +45,9 @@ export function HowItWorks() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 1, border: '1px solid var(--hairline)' }}>
         {steps.map(([ttl, body], i) => (
           <div key={ttl} className="row" style={{ background: 'var(--paper)', borderBottom: '1px solid var(--hairline)', padding: 32, gap: 32, flexWrap: 'wrap' }}>
-            <span className="display" style={{ fontSize: 96, lineHeight: 0.9, color: 'var(--accent)', minWidth: 120 }}>{String(i + 1).padStart(2, '0')}</span>
+            <span className="display" style={{ fontSize: 'clamp(40px, 5vw, 56px)', lineHeight: 0.9, color: 'var(--accent)', minWidth: 88 }}>{String(i + 1).padStart(2, '0')}</span>
             <div className="col" style={{ flex: 1, minWidth: 240 }}>
-              <h3 className="display" style={{ fontSize: 34, margin: 0 }}>{ttl}</h3>
+              <h3 className="display" style={{ fontSize: 24, margin: 0 }}>{ttl}</h3>
               <p className="text-muted" style={{ marginTop: 12, maxWidth: 640 }}>{body}</p>
             </div>
           </div>
@@ -89,7 +89,7 @@ export function BrowseArtists() {
 
   return (
     <Page num="02" eyebrow={lang === 'tr' ? 'Sanatçılar' : 'Artists'} title={lang === 'tr' ? 'Sanatçıları' : 'Discover'} italic={lang === 'tr' ? 'keşfet.' : 'artists.'}>
-      <div className="row gap-3 wrap" style={{ marginBottom: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24, maxWidth: 780 }}>
         <Input placeholder={lang === 'tr' ? 'İsimle ara' : 'Search by name'} value={q} onChange={(e) => setQ(e.target.value)} />
         <Select
           options={[{ value: 'all', label: lang === 'tr' ? 'Tüm şehirler' : 'All cities' }, ...CITIES.map(c => ({ value: c, label: c }))]}

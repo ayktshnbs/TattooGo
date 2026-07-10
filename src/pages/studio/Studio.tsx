@@ -89,7 +89,7 @@ export function StudioHome() {
       {!data && !error && <Loading />}
       {data && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 36 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 32 }}>
             <StatsCard label={lang === 'tr' ? 'Açık istek' : 'Open briefs'} value={String(data.stats.openRequests)} />
             <StatsCard label={lang === 'tr' ? 'Gönderilen teklif' : 'Offers sent'} value={String(data.stats.offersSent)} />
             <StatsCard label={lang === 'tr' ? 'Rezerve iş' : 'Booked jobs'} value={String(data.stats.jobsBooked)} />
