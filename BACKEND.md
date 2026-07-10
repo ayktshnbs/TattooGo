@@ -202,6 +202,15 @@ and the list below is unaffected. Geocoding is not called — artists save
 `latitude`/`longitude` manually in their profile (if geocoding is ever added,
 it must be restricted to country TR).
 
+**Turkey-only rules (enforced server-side in `api/_lib/cities.ts`):** `city`
+must be one of the **81 official Turkish provinces** — validated on register,
+`update-profile`, and the `/api/artists?city=` filter (invalid city → 400,
+never a silent pass). Public map coordinates must fall inside approximate
+Turkey bounds (lat 35.5–42.5, lng 25.5–45.0) and are only accepted as a
+lat+lng pair; anything outside is rejected on save. Frontend dropdowns
+(`src/data/cities.ts`) list the same 81 provinces — keep the two lists in
+sync.
+
 **Location visibility:** a marker/coords appear only when the artist set
 `is_public_location = TRUE` **and** saved coordinates. Otherwise only the
 approximate city/district label is shown (never exact coords, never a home

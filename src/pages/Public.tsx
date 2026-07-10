@@ -215,7 +215,7 @@ export function ArtistPublicProfile() {
                       )}
                     </div>
                   </div>
-                  <div className="row gap-5 center" style={{ alignItems: 'center' }}>
+                  <div className="row gap-8 center" style={{ alignItems: 'center' }}>
                     <div className="col center-text">
                       <span className="display" style={{ fontSize: 30 }}>{data.profile.rating != null ? `★ ${data.profile.rating}` : '—'}</span>
                       <span className="mono text-muted" style={{ fontSize: 10 }}>{data.profile.reviewCount} {lang === 'tr' ? 'yorum' : 'reviews'}</span>

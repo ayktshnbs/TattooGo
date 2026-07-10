@@ -81,7 +81,7 @@ export function Footer() {
         </div>
         <div className="row between center" style={{ paddingBlock: 28, borderTop: '1px solid var(--night-hairline)', flexWrap: 'wrap', gap: 16 }}>
           <span className="mono" style={{ color: 'var(--night-muted)' }}>© {year} · {t('footer.lockup')}</span>
-          <span className="mono" style={{ color: 'var(--night-muted)' }}>Istanbul · Amsterdam · Lisbon</span>
+          <span className="mono" style={{ color: 'var(--night-muted)' }}>İstanbul · Ankara · İzmir</span>
         </div>
       </div>
     </footer>
