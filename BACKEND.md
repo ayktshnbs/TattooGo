@@ -4,7 +4,7 @@ Role-based marketplace backend on **Vercel Serverless Functions**.
 Data layer: **Neon/Postgres** (when `DATABASE_URL` is set) with an automatic
 fallback to the legacy Blob-JSON collections. **Vercel Blob stores only
 files** — portfolio images, request reference photos. Transactional email via
-**Resend**.
+**Mailgun**.
 
 ## Architecture
 
@@ -15,7 +15,7 @@ Browser (Vite SPA)
 Vercel Functions (api/*.ts)
    │  api/_lib/auth.ts   — sessions (HMAC cookie, epoch), scrypt passwords
    │  api/_lib/repo.ts   — SINGLE data seam: Postgres primary, Blob fallback
-   │  api/_lib/email.ts  — Resend, fail-safe (never breaks the action)
+   │  api/_lib/email.ts  — Mailgun, fail-safe (never breaks the action)
    │  api/_lib/config.ts — PUBLIC_APP_URL etc. (no hardcoded domains)
    ▼                    ▼
 Neon Postgres      Vercel Blob (files only)
@@ -34,32 +34,47 @@ Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`,
 | `ADMIN_TOKEN` | yes (set) | /moderation review console |
 | `PUBLIC_APP_URL` | yes (set) | Origin used in email links & redirects — **update when the custom domain goes live** |
 | `DATABASE_URL` | for Postgres | Neon connection string — flips the repo from Blob fallback to Postgres |
-| `RESEND_API_KEY` | for email | Resend API key — without it, emails are skipped (logged), actions still succeed |
-| `RESEND_FROM_EMAIL` | optional | e.g. `TattooGo <no-reply@yourdomain.com>`; defaults to `onboarding@resend.dev` (works before domain verification) |
+| `MAILGUN_API_KEY` | for email | Mailgun private API key — without it, emails are skipped (logged), actions still succeed |
+| `MAILGUN_DOMAIN` | for email | Verified sending domain (e.g. `mg.yourdomain.com`). Falls back to `MAILGUN_SANDBOX_DOMAIN` if unset |
+| `MAILGUN_SANDBOX_DOMAIN` | for testing | Mailgun's sandbox domain — only delivers to recipients added as "Authorized Recipients" in the Mailgun dashboard |
+| `MAILGUN_BASE_URL` | optional | `https://api.mailgun.net` (US, default) or `https://api.eu.mailgun.net` (EU) — must match the region the domain was created in |
+| `MAILGUN_FROM_EMAIL` | optional | e.g. `TattooGo <mail@yourdomain.com>`; defaults to the sandbox sender |
 | `VITE_API_PROXY` | dev only | localhost /api proxy target (defaults to production) |
 | `VITE_GOOGLE_MAPS_API_KEY` | for map | browser Maps JS key (domain-restricted). Unset → list-only, map shows placeholder. **No Places API used.** |
 
-## Resend setup (one-time)
+## Mailgun setup (one-time)
 
-1. Create an account at resend.com → API Keys → create key → add as
-   `RESEND_API_KEY` in Vercel (Production + Development).
-2. Until you verify a domain you can send from `onboarding@resend.dev`
-   (default) — fine for testing, not for real users.
-3. Resend → Domains → Add domain (e.g. `yourdomain.com`). Resend shows the
-   exact DNS records; add them at your DNS provider:
-   - **SPF**: TXT on the send subdomain (e.g. `send.yourdomain.com`) —
-     `v=spf1 include:amazonses.com ~all` (value shown by Resend)
-   - **DKIM**: 3 CNAME records (`resend._domainkey…`, values shown by Resend)
-   - **DMARC** (recommended): TXT at `_dmarc.yourdomain.com` —
-     `v=DMARC1; p=none; rua=mailto:you@yourdomain.com` (tighten to
-     `p=quarantine` once healthy)
-4. After the domain shows **Verified**, set
-   `RESEND_FROM_EMAIL="TattooGo <no-reply@yourdomain.com>"` and redeploy.
+1. Create an account at mailgun.com → Sending → API Keys → copy the
+   **Private API key** → add as `MAILGUN_API_KEY` in Vercel (Production +
+   Development).
+2. **Sandbox testing (available immediately):** Mailgun provisions a sandbox
+   domain like `sandboxXXXX.mailgun.org` — set it as `MAILGUN_SANDBOX_DOMAIN`.
+   Sandbox mail **only reaches recipients you've added under Sending →
+   Domains → sandbox domain → Authorized Recipients** (each must confirm via
+   an email Mailgun sends them). This is for testing only, never production
+   traffic.
+3. **Production domain:** Sending → Domains → Add New Domain (e.g.
+   `mg.yourdomain.com`, a subdomain keeps root-domain DNS untouched). Mailgun
+   shows the exact records to add at your DNS provider:
+   - **SPF**: TXT on the sending domain — `v=spf1 include:mailgun.org ~all`
+   - **DKIM**: TXT record (`mx._domainkey…` or similar, value shown by
+     Mailgun, unique per domain)
+   - **MX** (only if using Mailgun for inbound routing — not required for
+     outbound-only transactional email)
+   - **Tracking CNAME** (optional, for open/click tracking): `email.` → the
+     value Mailgun shows
+4. Once the domain shows **Verified**, set `MAILGUN_DOMAIN` to that domain and
+   `MAILGUN_FROM_EMAIL="TattooGo <mail@yourdomain.com>"`, then redeploy.
+5. **Region matters:** a domain created under the EU region only works
+   against `https://api.eu.mailgun.net`; a US-region domain only works
+   against `https://api.mailgun.net`. Using the wrong base URL for the
+   domain's region fails with a 401/domain-not-found error. Set
+   `MAILGUN_BASE_URL` to match wherever the domain was created.
 
 **Email flows wired:** welcome + verify link (register), fresh verify link
 (resend), password reset, new-offer → customer, offer accepted/rejected →
 artist, job completed → customer (review invite), new message → recipient.
-All sends are post-write and fail-safe: a Resend outage can never lose an
+All sends are post-write and fail-safe: a Mailgun outage can never lose an
 offer/message; failures are logged without secrets or message bodies.
 
 ## Custom domain go-live checklist

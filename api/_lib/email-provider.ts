@@ -1,14 +1,15 @@
-import { FROM_EMAIL, RESEND_API_KEY } from './config.js';
+import { FROM_EMAIL, MAILGUN_API_KEY, MAILGUN_DOMAIN, MAILGUN_BASE_URL } from './config.js';
 
 /**
  * Email TRANSPORT — the single module that knows which vendor sends mail.
  *
- * To switch providers (Postmark, SendGrid, SES, …) replace ONLY this file's
- * `deliver()` and the env it reads. Nothing else in the codebase references a
- * provider: templates + the fail-safe policy live in email.ts, callers only
- * import template functions.
+ * To switch providers replace ONLY this file's `deliver()` and the env it
+ * reads. Nothing else in the codebase references a provider: templates + the
+ * fail-safe policy live in email.ts, callers only import template functions.
  *
- * Current vendor: Resend (https://resend.com).
+ * Current vendor: Mailgun (https://mailgun.com). Uses MAILGUN_DOMAIN if set,
+ * else MAILGUN_SANDBOX_DOMAIN (see config.ts) — sandbox only delivers to
+ * recipients authorized in the Mailgun dashboard.
  */
 
 export interface OutgoingEmail {
@@ -29,7 +30,7 @@ export class EmailDeliveryError extends Error {
 
 /** Whether a provider is configured at all (used for a clean "skipped" log). */
 export function isConfigured(): boolean {
-  return RESEND_API_KEY.length > 0;
+  return MAILGUN_API_KEY.length > 0 && MAILGUN_DOMAIN.length > 0;
 }
 
 /**
@@ -37,17 +38,23 @@ export function isConfigured(): boolean {
  * fail-safe wrapper in email.ts can swallow it. Returns silently on success.
  */
 export async function deliver(mail: OutgoingEmail): Promise<void> {
-  const res = await fetch('https://api.resend.com/emails', {
+  const body = new URLSearchParams({
+    from: FROM_EMAIL,
+    to: mail.to,
+    subject: mail.subject,
+    html: mail.html,
+  });
+  const res = await fetch(`${MAILGUN_BASE_URL}/v3/${MAILGUN_DOMAIN}/messages`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
+      Authorization: `Basic ${Buffer.from(`api:${MAILGUN_API_KEY}`).toString('base64')}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: JSON.stringify({ from: FROM_EMAIL, to: [mail.to], subject: mail.subject, html: mail.html }),
+    body,
   });
   if (!res.ok) {
-    // Read only the vendor error *name* — never the recipient or body.
+    // Read only the vendor error *message* — never the recipient or body.
     const detail = await res.json().catch(() => ({}));
-    throw new EmailDeliveryError(res.status, (detail as { name?: string }).name);
+    throw new EmailDeliveryError(res.status, (detail as { message?: string }).message);
   }
 }

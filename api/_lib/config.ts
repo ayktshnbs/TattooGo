@@ -10,9 +10,14 @@ export const APP_URL = (
   process.env.APP_URL || process.env.PUBLIC_APP_URL || 'https://tattoo-go.vercel.app'
 ).replace(/\/$/, '');
 
-/** Sender for transactional email. `onboarding@resend.dev` works before a
- *  custom domain is verified in Resend; switch via RESEND_FROM_EMAIL. */
-export const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'TattooGo <onboarding@resend.dev>';
+/** Sender for transactional email, e.g. `TattooGo <mail@yourdomain.com>`. */
+export const FROM_EMAIL = process.env.MAILGUN_FROM_EMAIL ?? 'TattooGo <mailgun@sandbox.mailgun.org>';
 
-export const RESEND_API_KEY = process.env.RESEND_API_KEY ?? '';
+export const MAILGUN_API_KEY = process.env.MAILGUN_API_KEY ?? '';
+/** Sending domain. Falls back to the sandbox domain for pre-production
+ *  testing — sandbox only delivers to authorized recipients in Mailgun. */
+export const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || process.env.MAILGUN_SANDBOX_DOMAIN || '';
+/** Regional API base, e.g. https://api.mailgun.net or https://api.eu.mailgun.net. */
+export const MAILGUN_BASE_URL = (process.env.MAILGUN_BASE_URL || 'https://api.mailgun.net').replace(/\/$/, '');
+
 export const DATABASE_URL = process.env.DATABASE_URL ?? '';
