@@ -5,7 +5,7 @@ import { Footer } from '../components/Footer';
 import { SectionHeader } from '../components/SectionHeader';
 import { Field, Input, Select, Textarea, ChoiceGroup } from '../components/Form';
 import { Empty, Loading } from '../components/Empty';
-import { STYLES, CITIES } from '../data/mock';
+import { STYLES, CITIES, styleLabel } from '../data/mock';
 import { auth, artists as artistsApi, type ApiArtist, type ApiArtistProfile, type ApiPortfolioItem } from '../lib/api';
 import { useAuth, isArtistRole } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
@@ -67,6 +67,7 @@ export function BrowseArtists() {
   const [city, setCity] = useState('all');
   const [district, setDistrict] = useState('');
   const [q, setQ] = useState('');
+  const [style, setStyle] = useState('all');
   const [list, setList] = useState<ApiArtist[] | null>(null);
   const [selectedId, setSelectedId] = useState<string>('');
 
@@ -79,10 +80,11 @@ export function BrowseArtists() {
         city: city === 'all' ? undefined : city,
         district: district.trim() || undefined,
         q: q.trim() || undefined,
+        style: style === 'all' ? undefined : style,
       }).then(setList).catch(() => setList([]));
     }, 250);
     return () => clearTimeout(t);
-  }, [city, district, q]);
+  }, [city, district, q, style]);
 
   const results = list ?? [];
   const selected = results.find(a => a.id === selectedId) ?? null;
@@ -96,6 +98,10 @@ export function BrowseArtists() {
           value={city} onChange={(e) => setCity(e.target.value)}
         />
         <Input placeholder={lang === 'tr' ? 'İlçe' : 'District'} value={district} onChange={(e) => setDistrict(e.target.value)} />
+        <Select
+          options={[{ value: 'all', label: lang === 'tr' ? 'Tüm stiller' : 'All styles' }, ...STYLES.map(s => ({ value: s.key, label: s[lang] }))]}
+          value={style} onChange={(e) => setStyle(e.target.value)}
+        />
       </div>
 
       {/* Map — markers come only from `results` (our Postgres API). */}
@@ -154,7 +160,7 @@ export function BrowseArtists() {
                 </div>
                 {a.bio && <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{a.bio}</p>}
                 <div className="row between center">
-                  <span className="mono text-muted" style={{ fontSize: 11 }}>{(a.styles ?? []).join(' · ') || '—'}</span>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{(a.styles ?? []).map(s => styleLabel(s, lang)).join(' · ') || '—'}</span>
                   <span className="mono">{a.rating != null ? `★ ${a.rating} (${a.reviewCount})` : (lang === 'tr' ? 'Yeni' : 'New')}</span>
                 </div>
                 <span className="mono text-muted" style={{ fontSize: 11 }}>{a.portfolioCount} {lang === 'tr' ? 'çalışma' : 'works'} · {lang === 'tr' ? 'Profili gör →' : 'View profile →'}</span>
@@ -211,7 +217,7 @@ export function ArtistPublicProfile() {
                       </span>
                       <h1 className="display" style={{ margin: 0, fontSize: 'clamp(32px, 5vw, 56px)', lineHeight: 1 }}>{data.profile.name}</h1>
                       {(data.profile.styles ?? []).length > 0 && (
-                        <span className="mono text-muted" style={{ fontSize: 11 }}>{(data.profile.styles ?? []).join(' · ')}</span>
+                        <span className="mono text-muted" style={{ fontSize: 11 }}>{(data.profile.styles ?? []).map(s => styleLabel(s, lang)).join(' · ')}</span>
                       )}
                     </div>
                   </div>

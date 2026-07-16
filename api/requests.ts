@@ -5,6 +5,7 @@ import { getSessionUser } from './_lib/auth.js';
 import {
   listOpenRequests, listRequestsByCustomer, getRequestById, createRequest, cancelRequest, hasOffer,
 } from './_lib/repo.js';
+import { isValidStyle } from './_lib/styles.js';
 
 /**
  * Tattoo requests (customer briefs).
@@ -57,6 +58,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       for (const [k, v] of Object.entries({ style, placement, size, color })) {
         if (typeof v !== 'string' || !v || v.length > 40) return res.status(400).json({ error: `${k} required` });
       }
+      // Style must be one of the allowed tattoo styles (no arbitrary strings).
+      if (!isValidStyle(style)) return res.status(400).json({ error: 'invalid tattoo style' });
 
       // Reference photo: the FILE goes to Vercel Blob; only the URL is stored.
       let referenceUrl: string | undefined;

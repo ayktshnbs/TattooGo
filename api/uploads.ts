@@ -6,6 +6,7 @@ import {
   createPortfolioItem, moderatePortfolio, countRecentPortfolioByArtist, countPendingPortfolio,
   type PortfolioItem,
 } from './_lib/repo.js';
+import { isValidStyle } from './_lib/styles.js';
 
 /**
  * Portfolio uploads → the public landing feed.
@@ -24,7 +25,6 @@ import {
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PER_ARTIST_PER_DAY = 10;
 const MAX_PENDING_QUEUE = 50;
-const STYLES = new Set(['fine-line', 'realism', 'minimal', 'traditional', 'blackwork', 'geometric', 'lettering', 'watercolor', 'color']);
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
 const isAdmin = (req: VercelRequest) => ADMIN_TOKEN.length > 0 && req.headers['x-admin-token'] === ADMIN_TOKEN;
@@ -59,7 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof title !== 'string' || !title.trim() || title.length > 120) {
         return res.status(400).json({ error: 'title required (max 120 chars)' });
       }
-      if (typeof style !== 'string' || !STYLES.has(style)) {
+      if (typeof style !== 'string' || !isValidStyle(style)) {
         return res.status(400).json({ error: 'invalid style' });
       }
       const match = typeof imageData === 'string' && imageData.match(/^data:image\/jpeg;base64,(.+)$/);

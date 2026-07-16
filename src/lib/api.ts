@@ -228,6 +228,7 @@ export interface ArtistFilters {
   city?: string;
   district?: string;
   q?: string;
+  style?: string;
 }
 
 export interface ApiArtistProfile {
@@ -242,6 +243,7 @@ export const artists = {
     if (f.city) p.set('city', f.city);
     if (f.district) p.set('district', f.district);
     if (f.q) p.set('q', f.q);
+    if (f.style) p.set('style', f.style);
     const qs = p.toString();
     return call<ApiArtist[]>(`/api/artists${qs ? `?${qs}` : ''}`);
   },

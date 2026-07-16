@@ -1,14 +1,22 @@
 export type Lang = 'en' | 'tr';
 
 export type TattooStyle =
-  | 'fine-line'
-  | 'realism'
-  | 'minimal'
+  | 'old-school'
+  | 'new-school'
   | 'traditional'
-  | 'blackwork'
+  | 'neo-traditional'
+  | 'black-work'
+  | 'avantgarde'
+  | 'color-realism'
+  | 'black-and-grey-realism'
   | 'geometric'
+  | 'mandala'
+  | 'ornamental'
+  | 'dotwork'
+  | 'minimalist'
+  | 'fine-line'
   | 'lettering'
-  | 'color';
+  | 'calligraphy';
 
 export type BodyPlacement =
   | 'arm' | 'forearm' | 'shoulder' | 'chest' | 'back' | 'leg' | 'thigh' | 'ankle' | 'hand' | 'neck' | 'ribs';

@@ -211,6 +211,34 @@ lat+lng pair; anything outside is rejected on save. Frontend dropdowns
 (`src/data/cities.ts`) list the same 81 provinces — keep the two lists in
 sync.
 
+**Tattoo styles / artist specialties (single source of truth):** the allowed
+style taxonomy lives in one place per side — `src/data/styles.ts` (frontend,
+with `en`/`tr` labels) and `api/_lib/styles.ts` (backend validation) — kept in
+sync by stable slug keys. The **16 styles** are: `old-school`, `new-school`,
+`traditional`, `neo-traditional`, `black-work`, `avantgarde`, `color-realism`,
+`black-and-grey-realism`, `geometric`, `mandala`, `ornamental`, `dotwork`,
+`minimalist`, `fine-line`, `lettering`, `calligraphy`. These describe what an
+artist does; they power the profile style selector, the customer request form,
+portfolio uploads, and the directory style filter.
+
+*Validation (server-side, arbitrary strings always → 400):*
+- **Profile styles** (`update-profile`): every entry must be in the allowed set,
+  de-duplicated, **max 5**; provider **activation requires ≥1 valid style**
+  (alongside name/city/district/bio/address-label/location-choice).
+- **Request style** (`POST /api/requests`): single style, must be in the set.
+- **Portfolio style** (`POST /api/uploads`): must be in the set (the old
+  server-only `watercolor` value was removed — re-add to both lists if ever
+  wanted).
+- **Directory filter** (`GET /api/artists?style=`): must be in the set; the
+  filter narrows the same Postgres result set the list and map share
+  (`style = ANY(u.styles)`), so map and list never diverge.
+
+*Not to be confused with contest categories.* Festival/competition categories
+(e.g. "Best of Black & Grey", "Best of Friday", "Best of Show") are a **separate
+future taxonomy** — event-scoped, mixing technique/size/day/skill axes — and must
+**never** be added to this style list or validated against it. The contest module
+is not built yet.
+
 **Location visibility:** a marker/coords appear only when the artist set
 `is_public_location = TRUE` **and** saved coordinates. Otherwise only the
 approximate city/district label is shown (never exact coords, never a home

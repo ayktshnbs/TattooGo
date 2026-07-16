@@ -7,7 +7,7 @@ import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useLang } from '../../i18n/LangContext';
 import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
-import { STYLES, CITIES, PLACEMENTS, taxonomyLabel } from '../../data/mock';
+import { STYLES, MAX_STYLES, CITIES, PLACEMENTS, taxonomyLabel, styleLabel } from '../../data/mock';
 import {
   dashboard, requests, offers, reviews, portfolio, auth,
   type ApiRequest, type ApiOffer, type ArtistDashboard, type ApiPortfolioItem,
@@ -56,7 +56,7 @@ function OpenRequestCard({ r, lang }: { r: ApiRequest; lang: string }) {
         <span className="mono text-muted" style={{ fontSize: 11 }}>{r.createdAt}</span>
       </div>
       <span className="mono text-muted" style={{ fontSize: 11 }}>
-        {r.customerName} · {r.style} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')} · {r.size}{r.city ? ` · ${r.city}` : ''}
+        {r.customerName} · {styleLabel(r.style, lang as 'en' | 'tr')} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')} · {r.size}{r.city ? ` · ${r.city}` : ''}
       </span>
       <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.description.slice(0, 140)}{r.description.length > 140 ? '…' : ''}</p>
       {r.referenceUrl && <img src={r.referenceUrl} alt="" style={{ width: '100%', maxHeight: 220, objectFit: 'cover' }} />}
@@ -153,7 +153,7 @@ export function MyTattoos() {
                   <strong>{d.title}</strong>
                   <span className="tag tag-soft">{d.status === 'pending' ? (lang === 'tr' ? 'İncelemede' : 'In review') : (lang === 'tr' ? 'Yayında' : 'Live')}</span>
                 </div>
-                <span className="mono text-muted" style={{ fontSize: 11 }}>{d.style} · {d.createdAt}</span>
+                <span className="mono text-muted" style={{ fontSize: 11 }}>{styleLabel(d.style, lang as 'en' | 'tr')} · {d.createdAt}</span>
               </div>
             </article>
           ))}
@@ -284,7 +284,7 @@ export function GiveOffer() {
                     <strong>{r.title}</strong>
                     <span className="mono text-muted" style={{ fontSize: 11 }}>{r.offerCount} {lang === 'tr' ? 'teklif' : 'offers'}</span>
                   </div>
-                  <span className="mono text-muted" style={{ fontSize: 11 }}>{r.customerName} · {r.style} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')}{r.city ? ` · ${r.city}` : ''}</span>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>{r.customerName} · {styleLabel(r.style, lang as 'en' | 'tr')} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')}{r.city ? ` · ${r.city}` : ''}</span>
                 </div>
               </button>
             ))}
@@ -596,7 +596,7 @@ export function StudioProfile() {
         </div>
         <div className="row between center">
           <span className="mono text-muted">{lang === 'tr' ? 'Stiller' : 'Styles'}</span>
-          <span>{(user?.styles ?? []).join(' · ') || '—'}</span>
+          <span>{(user?.styles ?? []).map(s => styleLabel(s, lang)).join(' · ') || '—'}</span>
         </div>
         {user?.bio && <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{user.bio}</p>}
         <div className="row between center">
@@ -616,7 +616,7 @@ function ProfileEditor() {
   const { user, setUser } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
   const [bio, setBio] = useState(user?.bio ?? '');
-  const [style, setStyle] = useState(user?.styles?.[0] ?? STYLES[0].key);
+  const [styles, setStyles] = useState<string[]>(user?.styles ?? []);
   const [city, setCity] = useState(user?.city ?? CITIES[0]);
   const [district, setDistrict] = useState(user?.district ?? '');
   const [addr, setAddr] = useState(user?.publicAddressLabel ?? '');
@@ -633,6 +633,12 @@ function ProfileEditor() {
   const coordsValid = (!lat.trim() && !lng.trim()) ||
     (latNum != null && lngNum != null &&
      latNum >= 35.5 && latNum <= 42.5 && lngNum >= 25.5 && lngNum <= 45.0);
+
+  // Multi-select styles: toggle on/off, capped at MAX_STYLES.
+  const toggleStyle = (key: string) => setStyles(prev =>
+    prev.includes(key) ? prev.filter(k => k !== key)
+    : prev.length >= MAX_STYLES ? prev
+    : [...prev, key]);
 
   return (
     <div className="card card-pad col gap-3" style={{ maxWidth: 520, marginTop: 24 }}>
@@ -653,8 +659,34 @@ function ProfileEditor() {
       <Field label={lang === 'tr' ? 'Kısa biyografi' : 'Short bio'}>
         <Textarea rows={3} value={bio} onChange={(e) => setBio(e.target.value)} />
       </Field>
-      <Field label={lang === 'tr' ? 'Ana stil' : 'Primary style'}>
-        <Select options={STYLES.map(s => ({ value: s.key, label: s[lang] }))} value={style} onChange={(e) => setStyle(e.target.value)} />
+      <Field label={lang === 'tr' ? `Stiller (en fazla ${MAX_STYLES})` : `Styles (up to ${MAX_STYLES})`}>
+        <div className="row wrap gap-2" style={{ marginTop: 4 }}>
+          {STYLES.map(s => {
+            const on = styles.includes(s.key);
+            const disabled = !on && styles.length >= MAX_STYLES;
+            return (
+              <button
+                key={s.key}
+                type="button"
+                className="tag"
+                onClick={() => toggleStyle(s.key)}
+                disabled={disabled}
+                style={{
+                  background: on ? 'var(--ink)' : 'transparent',
+                  color: on ? 'var(--paper)' : 'var(--ink)',
+                  borderColor: on ? 'var(--ink)' : 'var(--hairline-strong)',
+                  opacity: disabled ? 0.4 : 1,
+                  padding: '8px 12px', cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+              >{s[lang]}</button>
+            );
+          })}
+        </div>
+        {styles.length === 0 && (
+          <span className="mono text-muted" style={{ fontSize: 11, marginTop: 6 }}>
+            {lang === 'tr' ? 'Aktif olmak için en az bir stil seçin.' : 'Select at least one style to become active.'}
+          </span>
+        )}
       </Field>
       
       <div style={{ height: 1, backgroundColor: 'var(--hairline)', margin: '16px 0' }} />
@@ -689,7 +721,7 @@ function ProfileEditor() {
             setBusy(true); setError(''); setSaved(false);
             try {
               const me = await auth.updateProfile({
-                name: name.trim(), bio: bio.trim(), styles: [style],
+                name: name.trim(), bio: bio.trim(), styles,
                 city, district: district.trim(), publicAddressLabel: addr.trim(),
                 latitude: latNum ?? undefined, longitude: lngNum ?? undefined,
                 isPublicLocation: isPublic,

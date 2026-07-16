@@ -7,7 +7,7 @@ import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useLang } from '../../i18n/LangContext';
 import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
-import { STYLES, CITIES, PLACEMENTS, INK_COLORS, taxonomyLabel } from '../../data/mock';
+import { STYLES, CITIES, PLACEMENTS, INK_COLORS, taxonomyLabel, styleLabel } from '../../data/mock';
 import { fileToUpload } from '../../data/uploads';
 import {
   dashboard, requests, offers, messages, reviews, notifications, auth as authApi,
@@ -57,7 +57,7 @@ function RequestRowCard({ r, lang, onCancel }: { r: ApiRequest; lang: string; on
         <span className="tag tag-soft">{STATUS_LABEL[r.status]?.[lang as 'en' | 'tr'] ?? r.status}</span>
       </div>
       <span className="mono text-muted" style={{ fontSize: 11 }}>
-        {r.style} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')} · {r.size}{r.city ? ` · ${r.city}` : ''} · {r.createdAt}
+        {styleLabel(r.style, lang as 'en' | 'tr')} · {taxonomyLabel(PLACEMENTS, r.placement, lang as 'en' | 'tr')} · {r.size}{r.city ? ` · ${r.city}` : ''} · {r.createdAt}
       </span>
       <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>{r.description.slice(0, 160)}{r.description.length > 160 ? '…' : ''}</p>
       <div className="row between center">

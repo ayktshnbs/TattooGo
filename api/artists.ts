@@ -5,6 +5,7 @@ import {
 } from './_lib/repo.js';
 import { publicUser } from './_lib/auth.js';
 import { isTurkishCity } from './_lib/cities.js';
+import { isValidStyle } from './_lib/styles.js';
 
 /**
  * Public artist surface — no session required, safe for anonymous browsing.
@@ -60,10 +61,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (cityFilter && !isTurkishCity(cityFilter)) {
       return res.status(400).json({ error: 'city must be a Turkish province' });
     }
+    // A style filter, when given, must be one of the allowed tattoo styles.
+    const styleFilter = typeof req.query.style === 'string' && req.query.style ? req.query.style : undefined;
+    if (styleFilter && !isValidStyle(styleFilter)) {
+      return res.status(400).json({ error: 'invalid tattoo style' });
+    }
     const artists = await listArtistsPublic({
       city: cityFilter,
       district: typeof req.query.district === 'string' ? req.query.district : undefined,
       q: typeof req.query.q === 'string' ? req.query.q : undefined,
+      style: styleFilter,
     });
     res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=120');
     return res.status(200).json(artists);

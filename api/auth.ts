@@ -11,6 +11,7 @@ import {
 } from './_lib/repo.js';
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 import { isTurkishCity, isInTurkeyBounds } from './_lib/cities.js';
+import { isValidStyle, MAX_STYLES } from './_lib/styles.js';
 
 function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus'] {
   if (u.role === 'customer') return 'active';
@@ -31,7 +32,7 @@ function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus']
   const hasCity = typeof c === 'string' && c.trim().length > 0;
   const hasDistrict = typeof d === 'string' && d.trim().length > 0;
   const hasBio = typeof b === 'string' && b.trim().length > 0;
-  const hasStyles = Array.isArray(s) && s.length > 0;
+  const hasStyles = Array.isArray(s) && s.some((x: unknown) => typeof x === 'string' && isValidStyle(x));
   const hasAddressLabel = typeof a === 'string' && a.trim().length > 0;
   const hasLocChoice = typeof l === 'boolean';
 
@@ -209,6 +210,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (cityVal && !isTurkishCity(cityVal)) {
         return res.status(400).json({ error: 'city must be a Turkish province' });
       }
+      // Styles must come from the allowed taxonomy (no arbitrary strings), max 5.
+      let stylesVal: string[] | undefined;
+      if (styles !== undefined) {
+        if (!Array.isArray(styles) || !styles.every(s => typeof s === 'string' && isValidStyle(s))) {
+          return res.status(400).json({ error: 'invalid tattoo style' });
+        }
+        const deduped = [...new Set(styles as string[])];
+        if (deduped.length > MAX_STYLES) {
+          return res.status(400).json({ error: `at most ${MAX_STYLES} styles` });
+        }
+        stylesVal = deduped;
+      }
       const lat = latitude == null ? undefined : Number(latitude);
       const lng = longitude == null ? undefined : Number(longitude);
       if (lat !== undefined && (!Number.isFinite(lat) || lat < -90 || lat > 90)) {
@@ -230,7 +243,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         name: typeof name === 'string' ? name.trim() : undefined,
         bio: typeof bio === 'string' ? bio.trim().slice(0, 500) : undefined,
         city: cityVal,
-        styles: Array.isArray(styles) ? styles.filter((s): s is string => typeof s === 'string').slice(0, 5) : undefined,
+        styles: stylesVal,
         district: typeof district === 'string' ? district.trim().slice(0, 60) : undefined,
         publicAddressLabel: typeof publicAddressLabel === 'string' ? publicAddressLabel.trim().slice(0, 120) : undefined,
         latitude: lat,

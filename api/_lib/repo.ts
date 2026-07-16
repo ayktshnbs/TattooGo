@@ -211,6 +211,7 @@ export interface ArtistFilters {
   city?: string;
   district?: string;
   q?: string;
+  style?: string;
 }
 
 /** Public-safe discovery projection: registered artists/studios only, filtered
@@ -219,6 +220,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
   const city = filters.city?.trim() || null;
   const district = filters.district?.trim() || null;
   const q = filters.q?.trim() ? `%${filters.q.trim().toLowerCase()}%` : null;
+  const style = filters.style?.trim() || null;
 
   if (usePg) {
     const rows = await sql`
@@ -238,6 +240,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
         AND (${city}::text IS NULL OR u.city = ${city})
         AND (${district}::text IS NULL OR u.district = ${district})
         AND (${q}::text IS NULL OR LOWER(u.name) LIKE ${q})
+        AND (${style}::text IS NULL OR ${style} = ANY(u.styles))
       GROUP BY u.id
       ORDER BY review_count DESC, u.name ASC
       LIMIT 200`;
@@ -268,6 +271,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
     .filter(u => !city || u.city === city)
     .filter(u => !district || u.district === district)
     .filter(u => !q || u.name.toLowerCase().includes(q.replace(/%/g, '')))
+    .filter(u => !style || (Array.isArray(u.styles) && u.styles.includes(style)))
     .map(u => {
       const mine = reviews.filter(r => r.artistId === u.id);
       const approved = feed.filter(e => e.artistId === u.id && e.status !== 'pending');
