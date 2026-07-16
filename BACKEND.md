@@ -41,6 +41,11 @@ Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`,
 | `MAILGUN_FROM_EMAIL` | optional | e.g. `TattooGo <mail@yourdomain.com>`; defaults to the sandbox sender |
 | `VITE_API_PROXY` | dev only | localhost /api proxy target (defaults to production) |
 | *(map)* | none | discovery map uses Leaflet + OpenStreetMap tiles — **no API key required**. `VITE_GOOGLE_MAPS_API_KEY` is removed/ignored. |
+| `PREMIUM_REQUIRED` | optional | Offer premium gate. **Default `false`** = gate inert, marketplace unchanged. `true` = active providers also need an active premium subscription to send offers |
+| `CREEM_API_KEY` | for premium | Creem secret key (server-only). Without it, checkout returns 503; offers unaffected while the gate is off |
+| `CREEM_PRODUCT_ID` | for premium | Creem subscription product/price id for the premium plan |
+| `CREEM_WEBHOOK_SECRET` | for premium | Signing secret to verify webhook signatures; invalid signatures are rejected |
+| `CREEM_API_BASE` | optional | `https://test-api.creem.io` (test, default) or the live host |
 
 ## Mailgun setup (one-time)
 
@@ -261,6 +266,43 @@ moderation data. Verified by an automated no-leak scan in the audit.
 **Dashboard-only (session + role scoped):** everything under `/api/dashboard`,
 `/api/offers`, `/api/requests` (customer's own / artist's board+bids),
 `/api/messages`, `/api/notifications`, and `?mine=1` portfolio.
+
+## Premium membership (Creem, flag-gated)
+
+Artists/studios can hold a **premium subscription** via **Creem** (merchant-of-
+record, hosted checkout). The offer premium gate is behind `PREMIUM_REQUIRED`:
+
+- **`false` (default, current production):** the gate is **inert**. Active
+  providers send offers exactly as before — nothing about the marketplace
+  changes. Premium UI shows as "coming soon".
+- **`true`:** offer creation requires **both** `provider_status = 'active'`
+  **and** an active premium subscription. Otherwise `POST /api/offers` returns
+  `403 { code: 'premium_required', error: 'Premium membership is required to
+  send offers.' }`. Customers are never gated.
+
+**Data model.** `provider_subscriptions` (one row per user per provider; stores
+only Creem ids + `status` + period, **never card data**) and `webhook_events`
+(idempotency ledger). Written **only** by the verified webhook.
+
+**Endpoints.**
+- `GET /api/billing` → the caller's own premium status (dashboard card).
+- `POST /api/billing {action:'create-checkout'}` → a Creem-hosted checkout URL
+  (success returns to `/studio?upgraded=1`).
+- `POST /api/creem-webhook` → the **only** writer of premium status.
+
+**Security.** The webhook verifies an HMAC-SHA256 signature over the **raw**
+body (`bodyParser` disabled so bytes match), rejects invalid signatures (401),
+and is **idempotent** (a repeat `event_id` is a no-op via `webhook_events`).
+Premium is **never** granted by the success redirect — only by a verified
+event. `hasActivePremium()` is read fresh on every offer POST. Creem secrets
+are server-only; the frontend never sees them.
+
+**Vendor isolation.** All Creem API/webhook specifics live in
+`api/_lib/creem.ts` (like `email-provider.ts`). Creem's exact endpoint paths,
+webhook envelope, event names, and signature header **must be confirmed against
+Creem's current docs** — the parser is defensive and that one file is the only
+place to adjust. Runs in **test mode** (`CREEM_API_BASE` = test host) until the
+live host + `PREMIUM_REQUIRED=true` are set (both deliberate, separate switches).
 
 ## Data source of truth
 

@@ -4,6 +4,7 @@ import { DATABASE_URL } from './config.js';
 import {
   readCollection, writeCollection, readFeedIndex, writeFeedIndex, newId, today,
   type UserRow, type TokenRow, type RequestRow, type OfferRow, type MessageRow, type ReviewRow,
+  type SubscriptionRow,
 } from './db.js';
 
 /**
@@ -804,4 +805,78 @@ export async function listNotifications(userId: string, role: string): Promise<N
     title: isArtist ? o.customerName : o.artistName,
     body: o.requestTitle, read: true, ts: o.ts,
   }));
+}
+
+/* ===================== premium subscriptions (Creem) ===================== */
+/* Written ONLY by the verified webhook (upsertSubscriptionFromWebhook).
+ * Requires Postgres; in the legacy Blob fallback there is no premium (all
+ * lookups resolve to "no subscription", which is safe: with the gate off it
+ * changes nothing, and with the gate on it fails closed). */
+
+const mapSub = (r: Any): SubscriptionRow => ({
+  id: r.id as string, userId: r.user_id as string, provider: r.provider as string,
+  providerCustomerId: r.provider_customer_id as string ?? undefined,
+  providerSubscriptionId: r.provider_subscription_id as string ?? undefined,
+  status: r.status as SubscriptionRow['status'],
+  currentPeriodStart: r.current_period_start == null ? undefined : Number(r.current_period_start),
+  currentPeriodEnd: r.current_period_end == null ? undefined : Number(r.current_period_end),
+  cancelAtPeriodEnd: r.cancel_at_period_end as boolean ?? false,
+  createdAt: Number(r.created_at), updatedAt: Number(r.updated_at),
+});
+
+export async function getSubscription(userId: string): Promise<SubscriptionRow | null> {
+  if (!usePg) return null;
+  const rows = await sql`SELECT * FROM provider_subscriptions WHERE user_id = ${userId} AND provider = 'creem' LIMIT 1`;
+  return rows[0] ? mapSub(rows[0]) : null;
+}
+
+/** True only for a paid, unexpired subscription. Read fresh on every offer POST. */
+export async function hasActivePremium(userId: string): Promise<boolean> {
+  const sub = await getSubscription(userId);
+  if (!sub) return false;
+  const paid = sub.status === 'active' || sub.status === 'trialing';
+  const unexpired = sub.currentPeriodEnd == null || sub.currentPeriodEnd > Date.now();
+  return paid && unexpired;
+}
+
+export interface SubscriptionUpsert {
+  userId: string;
+  providerCustomerId?: string;
+  providerSubscriptionId?: string;
+  status: SubscriptionRow['status'];
+  currentPeriodStart?: number;
+  currentPeriodEnd?: number;
+  cancelAtPeriodEnd?: boolean;
+}
+
+/** Upsert the one subscription row for a user (one per provider). */
+export async function upsertSubscriptionFromWebhook(u: SubscriptionUpsert): Promise<void> {
+  if (!usePg) return;
+  const now = Date.now();
+  await sql`INSERT INTO provider_subscriptions
+    (id, user_id, provider, provider_customer_id, provider_subscription_id, status,
+     current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at)
+    VALUES (${newId('sub')}, ${u.userId}, 'creem', ${u.providerCustomerId ?? null},
+     ${u.providerSubscriptionId ?? null}, ${u.status}, ${u.currentPeriodStart ?? null},
+     ${u.currentPeriodEnd ?? null}, ${u.cancelAtPeriodEnd ?? false}, ${now}, ${now})
+    ON CONFLICT (user_id, provider) DO UPDATE SET
+      provider_customer_id     = COALESCE(EXCLUDED.provider_customer_id, provider_subscriptions.provider_customer_id),
+      provider_subscription_id = COALESCE(EXCLUDED.provider_subscription_id, provider_subscriptions.provider_subscription_id),
+      status                   = EXCLUDED.status,
+      current_period_start     = EXCLUDED.current_period_start,
+      current_period_end       = EXCLUDED.current_period_end,
+      cancel_at_period_end     = EXCLUDED.cancel_at_period_end,
+      updated_at               = ${now}`;
+}
+
+/** Idempotency guard: true the FIRST time an event id is seen, false on repeats. */
+export async function recordWebhookEvent(eventId: string): Promise<boolean> {
+  if (!usePg) return true;
+  try {
+    await sql`INSERT INTO webhook_events (event_id, provider, received_at) VALUES (${eventId}, 'creem', ${Date.now()})`;
+    return true;
+  } catch (err) {
+    if (err instanceof Error && /unique|duplicate/i.test(err.message)) return false;
+    throw err;
+  }
 }

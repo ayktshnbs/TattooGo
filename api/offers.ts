@@ -4,8 +4,10 @@ import { getSessionUser } from './_lib/auth.js';
 import {
   listOffersByArtist, listOffersByCustomer, getRequestById, createOffer,
   acceptOffer, rejectOffer, completeOffer, getOfferById, getUserById, pushNotification,
+  hasActivePremium,
 } from './_lib/repo.js';
 import { offerReceivedEmail, offerStatusEmail, jobCompletedEmail } from './_lib/email.js';
+import { PREMIUM_REQUIRED } from './_lib/config.js';
 
 /**
  * Offers on tattoo requests.
@@ -31,6 +33,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'POST') {
       if (!isArtist) return res.status(403).json({ error: 'only artists can send offers' });
       if (user.providerStatus !== 'active') return res.status(403).json({ error: 'your profile must be active to send offers' });
+      // Premium gate — INERT unless PREMIUM_REQUIRED=true. With the flag off the
+      // marketplace is unchanged; with it on, active providers also need premium.
+      if (PREMIUM_REQUIRED && !(await hasActivePremium(user.id))) {
+        return res.status(403).json({ code: 'premium_required', error: 'Premium membership is required to send offers.' });
+      }
       const { requestId, price, message, appointmentAt } = req.body ?? {};
       if (typeof requestId !== 'string') return res.status(400).json({ error: 'requestId required' });
       const priceNum = Number(price);

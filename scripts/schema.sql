@@ -136,3 +136,30 @@ CREATE TABLE IF NOT EXISTS notifications (
   ts         BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, ts DESC);
+
+-- Premium subscriptions (artist/studio). Written ONLY by the verified Creem
+-- webhook; read by the offer gate when PREMIUM_REQUIRED=true. No card data —
+-- we store only Creem's ids + status/period. One row per user per provider.
+CREATE TABLE IF NOT EXISTS provider_subscriptions (
+  id                       TEXT PRIMARY KEY,
+  user_id                  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  provider                 TEXT NOT NULL DEFAULT 'creem',
+  provider_customer_id     TEXT,
+  provider_subscription_id TEXT UNIQUE,
+  status                   TEXT NOT NULL DEFAULT 'none'
+                           CHECK (status IN ('none','trialing','active','past_due','canceled','expired')),
+  current_period_start     BIGINT,             -- ms epoch
+  current_period_end       BIGINT,             -- ms epoch
+  cancel_at_period_end     BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at               BIGINT NOT NULL,
+  updated_at               BIGINT NOT NULL,
+  UNIQUE (user_id, provider)
+);
+CREATE INDEX IF NOT EXISTS provider_subs_user_idx ON provider_subscriptions(user_id);
+
+-- Idempotency ledger for Creem webhook deliveries: a repeat event_id is a no-op.
+CREATE TABLE IF NOT EXISTS webhook_events (
+  event_id    TEXT PRIMARY KEY,
+  provider    TEXT NOT NULL DEFAULT 'creem',
+  received_at BIGINT NOT NULL
+);

@@ -9,8 +9,8 @@ import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
 import { STYLES, MAX_STYLES, CITIES, PLACEMENTS, taxonomyLabel, styleLabel } from '../../data/mock';
 import {
-  dashboard, requests, offers, reviews, portfolio, auth,
-  type ApiRequest, type ApiOffer, type ArtistDashboard, type ApiPortfolioItem,
+  dashboard, requests, offers, reviews, portfolio, auth, billing,
+  type ApiRequest, type ApiOffer, type ArtistDashboard, type ApiPortfolioItem, type BillingStatus,
 } from '../../lib/api';
 import { MessagesPage, NotificationsPage, VerificationRow } from '../customer/Customer';
 
@@ -73,6 +73,49 @@ function OpenRequestCard({ r, lang }: { r: ApiRequest; lang: string }) {
   );
 }
 
+/* ---------- Premium membership card (minimal) ---------- */
+function PremiumCard() {
+  const { lang } = useLang();
+  const [b, setB] = useState<BillingStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => { billing.status().then(setB).catch(() => setB(null)); }, []);
+  if (!b) return null;
+
+  const until = b.currentPeriodEnd ? new Date(b.currentPeriodEnd).toLocaleDateString(lang === 'tr' ? 'tr-TR' : 'en-GB') : null;
+  const upgrade = async () => {
+    setBusy(true); setErr('');
+    try { const { url } = await billing.createCheckout(); window.location.href = url; }
+    catch (e) { setErr(e instanceof Error ? e.message : 'failed'); setBusy(false); }
+  };
+
+  return (
+    <div className="card card-pad row between center" style={{ marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
+      <div className="col gap-1">
+        <strong>{lang === 'tr' ? 'Premium üyelik' : 'Premium membership'}</strong>
+        {b.hasPremium ? (
+          <span className="mono text-muted" style={{ fontSize: 11 }}>
+            {lang === 'tr' ? 'Aktif' : 'Active'}{until ? ` · ${lang === 'tr' ? 'bitiş' : 'until'} ${until}` : ''}
+            {b.cancelAtPeriodEnd ? ` · ${lang === 'tr' ? 'dönem sonunda iptal' : 'cancels at period end'}` : ''}
+          </span>
+        ) : (
+          <span className="mono text-muted" style={{ fontSize: 11 }}>
+            {b.premiumRequired
+              ? (lang === 'tr' ? 'Teklif göndermek için premium gerekli.' : 'Premium is required to send offers.')
+              : (lang === 'tr' ? 'Yakında — şu an teklif göndermek ücretsiz.' : 'Coming soon — sending offers is free for now.')}
+          </span>
+        )}
+        {err && <span className="mono" style={{ fontSize: 11 }}>⚠ {err}</span>}
+      </div>
+      {!b.hasPremium && (
+        <button className="btn btn-sm btn-accent" disabled={busy || !b.configured} onClick={upgrade}>
+          {busy ? '…' : (lang === 'tr' ? 'Premium’a geç' : 'Upgrade to Premium')}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /* ---------- Home ---------- */
 export function StudioHome() {
   useReveal();
@@ -89,6 +132,7 @@ export function StudioHome() {
       {!data && !error && <Loading />}
       {data && (
         <>
+          <PremiumCard />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 32 }}>
             <StatsCard label={lang === 'tr' ? 'Açık istek' : 'Open briefs'} value={String(data.stats.openRequests)} />
             <StatsCard label={lang === 'tr' ? 'Gönderilen teklif' : 'Offers sent'} value={String(data.stats.offersSent)} />

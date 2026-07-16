@@ -106,6 +106,23 @@ export interface ReviewRow {
   ts: number;
 }
 
+/** Premium subscription (artist/studio). Written ONLY by the verified Creem
+ *  webhook; read by the offer gate. No card data is ever stored here. */
+export type SubscriptionStatus = 'none' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired';
+export interface SubscriptionRow {
+  id: string;
+  userId: string;
+  provider: string;                    // 'creem'
+  providerCustomerId?: string;
+  providerSubscriptionId?: string;
+  status: SubscriptionStatus;
+  currentPeriodStart?: number;         // ms epoch
+  currentPeriodEnd?: number;           // ms epoch
+  cancelAtPeriodEnd?: boolean;
+  createdAt: number;                   // ms epoch
+  updatedAt: number;                   // ms epoch
+}
+
 type CollectionName = 'users' | 'requests' | 'offers' | 'messages' | 'reviews' | 'tokens';
 
 const KEEP_VERSIONS = 5;

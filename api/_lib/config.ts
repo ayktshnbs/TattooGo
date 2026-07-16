@@ -21,3 +21,17 @@ export const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || process.env.MAILGUN_
 export const MAILGUN_BASE_URL = (process.env.MAILGUN_BASE_URL || 'https://api.mailgun.net').replace(/\/$/, '');
 
 export const DATABASE_URL = process.env.DATABASE_URL ?? '';
+
+/* ---------- Premium membership / Creem (test mode until launched) ---------- */
+
+/** Master switch for the offer premium gate. When false (default) the gate is
+ *  INERT — active artists/studios send offers exactly as before. Flip to true
+ *  only to require an active premium subscription for offer creation. */
+export const PREMIUM_REQUIRED = /^(1|true|yes|on)$/i.test(process.env.PREMIUM_REQUIRED ?? '');
+
+/** Creem — server-only. Hosted checkout + webhooks; no card data touches us. */
+export const CREEM_API_KEY = process.env.CREEM_API_KEY ?? '';
+export const CREEM_PRODUCT_ID = process.env.CREEM_PRODUCT_ID ?? '';
+export const CREEM_WEBHOOK_SECRET = process.env.CREEM_WEBHOOK_SECRET ?? '';
+/** API base — Creem test host by default; set to the live host to go live. */
+export const CREEM_API_BASE = (process.env.CREEM_API_BASE || 'https://test-api.creem.io').replace(/\/$/, '');

@@ -81,6 +81,23 @@ export const auth = {
     call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'update-profile', ...input }) }),
 };
 
+/* ---------- premium billing (artist/studio) ---------- */
+
+export interface BillingStatus {
+  premiumRequired: boolean;
+  configured: boolean;
+  hasPremium: boolean;
+  status: 'none' | 'trialing' | 'active' | 'past_due' | 'canceled' | 'expired' | string;
+  currentPeriodEnd: number | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+export const billing = {
+  status: () => call<BillingStatus>('/api/billing'),
+  createCheckout: () =>
+    call<{ url: string }>('/api/billing', { method: 'POST', body: JSON.stringify({ action: 'create-checkout' }) }),
+};
+
 /* ---------- notifications ---------- */
 
 export interface ApiNotification {
