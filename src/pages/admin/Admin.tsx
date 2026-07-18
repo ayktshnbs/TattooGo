@@ -6,7 +6,7 @@ import { Empty, Loading, ErrorNote } from '../../components/Empty';
 import { useAuth } from '../../auth/AuthContext';
 import {
   admin,
-  type AdminSummary, type AdminUser, type AdminUserFilter, type AdminPortfolioItem,
+  type AdminSummary, type AdminUser, type AdminUserFilter, type AdminPortfolioItem, type AdminReportedPortfolioItem,
   type AdminRequest, type AdminOffer, type AdminReview, type AdminAuditEntry,
 } from '../../lib/api';
 
@@ -248,60 +248,117 @@ export function AdminUsersPage() {
 const btnMini: React.CSSProperties = { fontSize: 9, padding: '4px 8px', border: '1px solid var(--hairline-strong)', letterSpacing: '0.14em' };
 
 /* ------------------------------ portfolio ------------------------------ */
-
+/**
+ * Two views:
+ *   - REPORTED: items with any reports (reviewed or not), sorted by count desc.
+ *     This is where admin actually spends time.
+ *   - ALL: everything, for spot-checks.
+ * There is no per-item approve step anymore — uploads are public by default
+ * while their owner is active. Admin acts only on reported / flagged items.
+ */
 export function AdminPortfolioPage() {
-  const [status, setStatus] = useState<'pending' | 'approved' | 'all'>('pending');
-  const { data, error, reload, busy } = useAsync(() => admin.listPortfolio(status), [status]);
+  const [view, setView] = useState<'reported' | 'all'>('reported');
+  const reported = useAsync(() => admin.listReportedPortfolio(), [view]);
+  const all = useAsync(() => admin.listPortfolio('all'), [view]);
+  const src = view === 'reported' ? reported : all;
+  const items = src.data ?? [];
 
-  const approve = async (item: AdminPortfolioItem) => {
-    if (!await confirmAction(`Approve "${item.title}" by ${item.artistName}?`)) return;
-    try { await admin.approvePortfolio(item.id); reload(); }
+  const hide = async (id: string) => {
+    if (!await confirmAction('Hide this item from public? You can unhide later.')) return;
+    try { await admin.hidePortfolioItem(id); src.reload(); }
     catch (e) { alert(e instanceof Error ? e.message : 'failed'); }
   };
-  const reject = async (item: AdminPortfolioItem) => {
-    if (!await confirmAction(`Reject "${item.title}"? The image will be deleted from storage. This cannot be undone.`)) return;
-    try { await admin.rejectPortfolio(item.id); reload(); }
+  const unhide = async (id: string) => {
+    if (!await confirmAction('Make this item visible again?')) return;
+    try { await admin.unhidePortfolioItem(id); src.reload(); }
+    catch (e) { alert(e instanceof Error ? e.message : 'failed'); }
+  };
+  const del = async (id: string) => {
+    if (!await confirmAction('Delete permanently? The image is removed from storage. This cannot be undone.')) return;
+    try { await admin.deletePortfolioItem(id); src.reload(); }
+    catch (e) { alert(e instanceof Error ? e.message : 'failed'); }
+  };
+  const markReviewed = async (id: string) => {
+    try { await admin.markReportsReviewed(id); src.reload(); }
+    catch (e) { alert(e instanceof Error ? e.message : 'failed'); }
+  };
+  const setNeedsReview = async (artistId: string) => {
+    if (!await confirmAction('Set provider to needs_review? They will disappear from public surfaces.')) return;
+    try { await admin.setProviderStatus(artistId, 'needs_review'); src.reload(); }
+    catch (e) { alert(e instanceof Error ? e.message : 'failed'); }
+  };
+  const suspend = async (artistId: string) => {
+    if (!await confirmAction('Suspend this provider? They lose provider access; base account remains.')) return;
+    try { await admin.setProviderStatus(artistId, 'suspended'); src.reload(); }
     catch (e) { alert(e instanceof Error ? e.message : 'failed'); }
   };
 
   return (
     <Shell title="Portfolio moderation">
       <div className="row gap-3" style={{ marginBottom: 20 }}>
-        {(['pending', 'approved', 'all'] as const).map(s => (
-          <button key={s} className="mono" onClick={() => setStatus(s)} style={{
+        {(['reported', 'all'] as const).map(s => (
+          <button key={s} className="mono" onClick={() => setView(s)} style={{
             fontSize: 10, padding: '6px 10px', border: '1px solid var(--hairline-strong)', borderRadius: 999,
-            background: status === s ? 'var(--ink)' : 'transparent',
-            color: status === s ? 'var(--paper)' : 'var(--ink)',
-          }}>{s.toUpperCase()}</button>
+            background: view === s ? 'var(--ink)' : 'transparent',
+            color: view === s ? 'var(--paper)' : 'var(--ink)',
+          }}>{s === 'reported' ? 'REPORTED' : 'ALL'}</button>
         ))}
       </div>
-      {error && <ErrorNote message={error} />}
-      {busy && !data && <Loading />}
-      {data && data.length === 0 && <Empty title="No portfolio items." />}
-      {data && data.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-          {data.map(item => (
-            <article key={item.id} className="card col" style={{ overflow: 'hidden' }}>
-              <img src={item.imageUrl} alt={item.title} loading="lazy"
-                style={{ width: '100%', aspectRatio: item.imageRatio || 1, objectFit: 'cover', display: 'block' }} />
-              <div className="card-pad col gap-2">
-                <strong style={{ fontSize: 14 }}>{item.title}</strong>
-                <span className="mono text-muted" style={{ fontSize: 11 }}>
-                  {item.style} · {item.artistName} · {item.status}
-                </span>
-                <span className="mono text-muted" style={{ fontSize: 10 }}>
-                  owner: {item.ownerProviderType ?? '—'} / {item.ownerProviderStatus ?? '—'}
-                  {item.ownerDeactivated ? ' · DEACTIVATED' : ''}
-                </span>
-                <div className="row gap-2" style={{ marginTop: 6 }}>
-                  {item.status === 'pending' && (
-                    <button className="btn btn-sm btn-accent" onClick={() => approve(item)}>Approve</button>
+      {src.error && <ErrorNote message={src.error} />}
+      {src.busy && !src.data && <Loading />}
+      {src.data && items.length === 0 && <Empty title={view === 'reported' ? 'No reported items.' : 'No portfolio items.'} />}
+      {items.length > 0 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+          {items.map(item => {
+            const reportedItem = view === 'reported' ? (item as AdminReportedPortfolioItem) : null;
+            return (
+              <article key={item.id} className="card col" style={{ overflow: 'hidden' }}>
+                <img src={item.imageUrl} alt={item.title} loading="lazy"
+                  style={{ width: '100%', aspectRatio: item.imageRatio || 1, objectFit: 'cover', display: 'block',
+                    opacity: reportedItem?.hiddenAt ? 0.5 : 1 }} />
+                <div className="card-pad col gap-2">
+                  <div className="row between center">
+                    <strong style={{ fontSize: 14 }}>{item.title}</strong>
+                    {reportedItem?.hiddenAt && <span className="mono" style={{ fontSize: 10 }}>HIDDEN</span>}
+                  </div>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>
+                    {item.style} · {item.artistName}
+                  </span>
+                  <span className="mono text-muted" style={{ fontSize: 10 }}>
+                    owner: {item.ownerProviderType ?? '—'} / {item.ownerProviderStatus ?? '—'}
+                    {item.ownerDeactivated ? ' · DEACTIVATED' : ''}
+                  </span>
+                  {reportedItem && (
+                    <>
+                      <span className="mono" style={{ fontSize: 11 }}>
+                        {reportedItem.reportCount} report{reportedItem.reportCount === 1 ? '' : 's'}
+                        {reportedItem.pendingReports > 0 && ` · ${reportedItem.pendingReports} pending`}
+                      </span>
+                      {reportedItem.latestReason && (
+                        <span className="mono text-muted" style={{ fontSize: 10 }}>
+                          latest: {reportedItem.latestReason}
+                        </span>
+                      )}
+                      {reportedItem.latestNote && (
+                        <span className="text-muted" style={{ fontSize: 12 }}>“{reportedItem.latestNote}”</span>
+                      )}
+                    </>
                   )}
-                  <button className="btn btn-sm btn-ghost" onClick={() => reject(item)}>Reject / delete</button>
+                  <div className="row wrap gap-2" style={{ marginTop: 6 }}>
+                    {reportedItem?.hiddenAt
+                      ? <button className="btn btn-sm btn-ghost" onClick={() => unhide(item.id)}>Unhide</button>
+                      : <button className="btn btn-sm btn-ghost" onClick={() => hide(item.id)}>Hide</button>}
+                    <button className="btn btn-sm btn-ghost" onClick={() => del(item.id)}>Delete</button>
+                    {reportedItem && reportedItem.pendingReports > 0 && (
+                      <button className="btn btn-sm btn-ghost" onClick={() => markReviewed(item.id)}>Mark reviewed</button>
+                    )}
+                    <button className="btn btn-sm btn-ghost" onClick={() => setNeedsReview(item.artistId)}>needs_review</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => suspend(item.artistId)}>Suspend</button>
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </Shell>

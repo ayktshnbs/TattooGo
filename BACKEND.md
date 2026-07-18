@@ -333,6 +333,57 @@ through login/register; artist/studio intents land on `/studio`, where users
 without a provider profile see the inline create-provider onboarding (no
 modal) and existing providers land on their dashboard.
 
+## Provider activation
+
+A provider becomes `active` **automatically** the moment every requirement is
+satisfied. Uploads are checked on both `update-profile` and `POST /api/uploads`
+so the third upload can be the trigger. Required for activation:
+
+- name, city (81 TR provinces only), district, bio
+- ≥1 valid style (from the 16-style taxonomy)
+- publicAddressLabel (open address / location description)
+- **instagramHandle** — normalized via `api/_lib/instagram.ts` (accepts
+  `@handle`, bare `handle`, or `instagram.com/handle` URLs; rejects anything
+  that fails `[A-Za-z0-9._]{1,30}` or has leading/trailing dot)
+- `isPublicLocation` set (boolean chosen)
+- if `isPublicLocation = true`: `latitude` + `longitude` present AND inside
+  Turkey bounds. Coords come from the draggable Leaflet pin in the profile
+  editor (`src/components/LocationPinPicker.tsx`); the raw numeric fields are
+  never shown to users. Backend still validates the pair + bounds.
+- **≥3 uploaded, non-hidden portfolio items**. Report-based moderation means
+  no manual approval — the count is `SELECT COUNT(*) FROM portfolio_items
+  WHERE artist_id = $1 AND hidden_at IS NULL`.
+
+`suspended` and `needs_review` cannot self-clear (admin-only exit). If the
+count drops below 3 after activation (admin hides/deletes an item), the
+provider is NOT auto-downgraded — admin can set `needs_review`/`suspended` if
+warranted.
+
+## Portfolio moderation — report-based
+
+Uploads are public by default while the owner is an `active` non-deactivated
+provider. Public visibility gate is **`hidden_at IS NULL`** on the item
+(replaces the old `status = 'approved'` gate — status column is retained
+vestigially, always `'approved'` for new items).
+
+**Reports** — `POST /api/reports {itemId, reason, note?}`. Anonymous OR
+authenticated. Rate-limited: at most **1 report per (item, hashed IP) per
+24h** (429). The IP hash is `sha256(ip + AUTH_SECRET)` — never the raw IP,
+never exposed. Valid reasons: `inappropriate_content`, `stolen_work`,
+`spam_fake`, `offensive_content`, `wrong_category`, `other`.
+
+**Auto-hide at 3** — when a report brings the item's distinct-source count to
+≥3, the same statement that inserts the report also sets `hidden_at` (via
+`hidden_by = 'auto:reports'`). One and two reports queue quietly. Reports on
+already-hidden items or non-active providers 404.
+
+**Admin queue** — `/admin/portfolio` REPORTED view (default) shows every item
+with any report, with `report_count`, pending count, latest reason/note. Actions:
+`hide-portfolio-item`, `unhide-portfolio-item`, `delete-portfolio-item`
+(cascades reports, removes Blob file), `mark-reports-reviewed`, plus
+`set-provider-status` to needs_review or suspended. Every action writes
+`admin_audit_log`.
+
 ## Admin panel (MVP)
 
 Session-based admin at `/admin`, protected by **`users.is_admin`** — a nullable

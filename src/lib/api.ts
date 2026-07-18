@@ -49,6 +49,7 @@ export interface Me {
   longitude?: number;
   isPublicLocation?: boolean;
   hasPublicLocation?: boolean;
+  instagramHandle?: string;
   providerStatus?: 'active' | 'pending_profile' | 'needs_review' | 'suspended';
   /** Admin gate. Set only by scripts/bootstrap-admin.mjs; every API write strips it. */
   isAdmin?: boolean;
@@ -65,6 +66,8 @@ export interface ProfileUpdate {
   latitude?: number;
   longitude?: number;
   isPublicLocation?: boolean;
+  /** Bare handle (no @) OR full instagram URL OR null to clear; backend normalizes. */
+  instagramHandle?: string | null;
 }
 
 export const auth = {
@@ -123,6 +126,15 @@ export interface AdminPortfolioItem {
   ownerDeactivated: boolean;
 }
 
+export interface AdminReportedPortfolioItem extends AdminPortfolioItem {
+  hiddenAt: number | null;
+  hiddenBy: string | null;
+  reportCount: number;
+  pendingReports: number;
+  latestReason: string | null;
+  latestNote: string | null;
+}
+
 export interface AdminRequest {
   id: string; title: string; style: string;
   city: string | null; district: string | null;
@@ -171,12 +183,18 @@ export const admin = {
     call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'deactivate-user', id }) }),
   reactivateUser: (id: string) =>
     call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'reactivate-user', id }) }),
-  listPortfolio: (status: 'pending' | 'approved' | 'all' = 'pending') =>
+  listPortfolio: (status: 'pending' | 'approved' | 'all' = 'all') =>
     call<AdminPortfolioItem[]>('/api/admin?action=list-portfolio&status=' + status),
-  approvePortfolio: (id: string) =>
-    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'approve-portfolio', id }) }),
-  rejectPortfolio: (id: string) =>
-    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'reject-portfolio', id }) }),
+  listReportedPortfolio: () =>
+    call<AdminReportedPortfolioItem[]>('/api/admin?action=list-reported-portfolio'),
+  hidePortfolioItem: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'hide-portfolio-item', id }) }),
+  unhidePortfolioItem: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'unhide-portfolio-item', id }) }),
+  deletePortfolioItem: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'delete-portfolio-item', id }) }),
+  markReportsReviewed: (id: string) =>
+    call<{ ok: true; reviewed: number }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'mark-reports-reviewed', id }) }),
   listRequests: () => call<AdminRequest[]>('/api/admin?action=list-requests'),
   listOffers: () => call<AdminOffer[]>('/api/admin?action=list-offers'),
   listReviews: () => call<AdminReview[]>('/api/admin?action=list-reviews'),
@@ -348,6 +366,7 @@ export interface ApiArtist {
   publicAddressLabel?: string;
   previewImages: string[];
   portfolioCount: number;
+  instagramHandle?: string;
 }
 
 export interface ArtistFilters {
@@ -374,6 +393,20 @@ export const artists = {
     return call<ApiArtist[]>(`/api/artists${qs ? `?${qs}` : ''}`);
   },
   get: (id: string) => call<ApiArtistProfile>(`/api/artists?id=${encodeURIComponent(id)}`),
+};
+
+/* ---------- portfolio reports (anonymous OR authed) ---------- */
+
+export type ReportReason =
+  | 'inappropriate_content' | 'stolen_work' | 'spam_fake'
+  | 'offensive_content' | 'wrong_category' | 'other';
+
+export const reports = {
+  create: (itemId: string, reason: ReportReason, note?: string) =>
+    call<{ ok: true }>('/api/reports', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, reason, note }),
+    }),
 };
 
 /* ---------- dashboard aggregates ---------- */

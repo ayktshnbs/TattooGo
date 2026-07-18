@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS users (
   latitude           DOUBLE PRECISION,
   longitude          DOUBLE PRECISION,
   is_public_location BOOLEAN NOT NULL DEFAULT FALSE,
+  -- Required at activation time (normalized on save: bare handle, no @). Public.
+  instagram_handle TEXT,
   pass_hash      TEXT NOT NULL,
   salt           TEXT NOT NULL,
   email_verified BOOLEAN NOT NULL DEFAULT FALSE,
@@ -121,21 +123,46 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE INDEX IF NOT EXISTS reviews_artist_idx ON reviews(artist_id, ts DESC);
 
 -- Portfolio records; image files stay in Vercel Blob (image_url).
+-- Public visibility gate is hidden_at IS NULL + owner active/not deactivated.
+-- New uploads default status='approved' (no manual approval step); the status
+-- column is retained for backward compatibility but is no longer a public gate.
 CREATE TABLE IF NOT EXISTS portfolio_items (
-  id          TEXT PRIMARY KEY,
-  artist_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  artist_name TEXT NOT NULL,
-  title       TEXT NOT NULL,
-  style       TEXT NOT NULL,
-  tags        TEXT[] DEFAULT '{}',
-  image_url   TEXT NOT NULL,
-  image_ratio REAL NOT NULL DEFAULT 1,
-  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved')),
-  created_at  TEXT NOT NULL,
-  ts          BIGINT NOT NULL
+  id           TEXT PRIMARY KEY,
+  artist_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  artist_name  TEXT NOT NULL,
+  title        TEXT NOT NULL,
+  style        TEXT NOT NULL,
+  tags         TEXT[] DEFAULT '{}',
+  image_url    TEXT NOT NULL,
+  image_ratio  REAL NOT NULL DEFAULT 1,
+  status       TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending','approved')),
+  created_at   TEXT NOT NULL,
+  ts           BIGINT NOT NULL,
+  hidden_at    BIGINT,             -- soft-hide (admin or auto-hide at 3 distinct reports)
+  hidden_by    TEXT,               -- admin user id, or 'auto:reports'
+  report_count INTEGER NOT NULL DEFAULT 0  -- distinct reporter tally, kept in sync on insert
 );
 CREATE INDEX IF NOT EXISTS portfolio_artist_idx ON portfolio_items(artist_id, ts DESC);
 CREATE INDEX IF NOT EXISTS portfolio_status_idx ON portfolio_items(status, ts DESC);
+CREATE INDEX IF NOT EXISTS portfolio_public_idx ON portfolio_items(hidden_at, ts DESC);
+
+-- Report-based moderation: anonymous+authed reports on public portfolio items.
+-- reporter_ip_hash = sha256(ip + AUTH_SECRET); used only for anti-spam rate
+-- limit (max 1 per (item, hash) / 24h) and distinct-source count. Never exposed.
+CREATE TABLE IF NOT EXISTS portfolio_reports (
+  id                TEXT PRIMARY KEY,
+  item_id           TEXT NOT NULL REFERENCES portfolio_items(id) ON DELETE CASCADE,
+  reporter_id       TEXT REFERENCES users(id) ON DELETE SET NULL,
+  reporter_ip_hash  TEXT NOT NULL,
+  reason            TEXT NOT NULL,
+  note              TEXT,
+  created_at        BIGINT NOT NULL,
+  reviewed_at       BIGINT,
+  reviewed_by       TEXT REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS portfolio_reports_item_idx      ON portfolio_reports(item_id);
+CREATE INDEX IF NOT EXISTS portfolio_reports_pending_idx   ON portfolio_reports(reviewed_at, created_at DESC);
+CREATE INDEX IF NOT EXISTS portfolio_reports_ratelimit_idx ON portfolio_reports(item_id, reporter_ip_hash, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS notifications (
   id         TEXT PRIMARY KEY,

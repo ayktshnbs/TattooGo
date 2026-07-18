@@ -9,12 +9,16 @@ import {
   findUserByEmail, createUser, setEmailVerified, setPassword,
   recordLoginFailure, clearLoginFailures, isLocked, createToken, consumeToken,
   updateProfile, getUserById, deactivateAccount, setProviderType,
+  countVisiblePortfolioForActivation,
 } from './_lib/repo.js';
+import { normalizeInstagram } from './_lib/instagram.js';
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 import { isTurkishCity, isInTurkeyBounds } from './_lib/cities.js';
 import { isValidStyle, MAX_STYLES } from './_lib/styles.js';
 
-function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus'] | undefined {
+export const PORTFOLIO_MIN_FOR_ACTIVATION = 3;
+
+export async function evaluateArtistActivation(u: UserRow, p: any): Promise<UserRow['providerStatus'] | undefined> {
   // Multi-mode: activation applies only to accounts WITH a provider profile.
   // Base (customer-only) accounts have no provider_status at all.
   if (!u.providerType) return undefined;
@@ -28,6 +32,7 @@ function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus']
   const s = Array.isArray(p.styles) ? p.styles : u.styles;
   const a = typeof p.publicAddressLabel === 'string' ? p.publicAddressLabel : u.publicAddressLabel;
   const l = typeof p.isPublicLocation === 'boolean' ? p.isPublicLocation : u.isPublicLocation;
+  const ig = p.instagramHandle !== undefined ? p.instagramHandle : u.instagramHandle;
   const lat = p.latitude !== undefined ? p.latitude : u.latitude;
   const lng = p.longitude !== undefined ? p.longitude : u.longitude;
 
@@ -38,8 +43,10 @@ function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus']
   const hasStyles = Array.isArray(s) && s.some((x: unknown) => typeof x === 'string' && isValidStyle(x));
   const hasAddressLabel = typeof a === 'string' && a.trim().length > 0;
   const hasLocChoice = typeof l === 'boolean';
+  const hasInstagram = typeof ig === 'string' && ig.trim().length > 0;
 
-  if (!hasName || !hasCity || !hasDistrict || !hasBio || !hasStyles || !hasAddressLabel || !hasLocChoice) {
+  if (!hasName || !hasCity || !hasDistrict || !hasBio || !hasStyles
+      || !hasAddressLabel || !hasLocChoice || !hasInstagram) {
     return 'pending_profile';
   }
 
@@ -47,6 +54,11 @@ function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus']
     if (lat == null || lng == null) return 'pending_profile';
     if (!isInTurkeyBounds(lat, lng)) return 'pending_profile';
   }
+
+  // ≥3 uploaded, non-hidden portfolio items. Report-based moderation means we
+  // don't require admin approval — uploads count immediately.
+  const portfolio = await countVisiblePortfolioForActivation(u.id);
+  if (portfolio < PORTFOLIO_MIN_FOR_ACTIVATION) return 'pending_profile';
 
   return 'active';
 }
@@ -216,7 +228,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (action === 'update-profile') {
       const me = await getSessionUser(req);
       if (!me) return res.status(401).json({ error: 'sign in required' });
-      const { name, bio, city, styles, district, publicAddressLabel, latitude, longitude, isPublicLocation } = req.body ?? {};
+      const { name, bio, city, styles, district, publicAddressLabel, latitude, longitude, isPublicLocation, instagramHandle } = req.body ?? {};
 
       if (name !== undefined && (typeof name !== 'string' || !name.trim() || name.length > 80)) {
         return res.status(400).json({ error: 'invalid name' });
@@ -224,8 +236,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       const isArtist = !!me.providerType;
       // Location fields are artist/studio-only; customers can't set a map pin.
-      if (!isArtist && (district != null || latitude != null || longitude != null || publicAddressLabel != null || isPublicLocation != null)) {
-        return res.status(403).json({ error: 'only artists/studios can set a public location' });
+      if (!isArtist && (district != null || latitude != null || longitude != null || publicAddressLabel != null || isPublicLocation != null || instagramHandle != null)) {
+        return res.status(403).json({ error: 'only artists/studios can set provider fields' });
+      }
+      // Instagram: undefined = untouched, null/empty string = clear, else normalize.
+      let instagramVal: string | null | undefined;
+      if (instagramHandle !== undefined) {
+        if (instagramHandle === null || (typeof instagramHandle === 'string' && !instagramHandle.trim())) {
+          instagramVal = null;
+        } else {
+          const norm = normalizeInstagram(instagramHandle);
+          if (!norm) return res.status(400).json({ error: 'invalid Instagram handle' });
+          instagramVal = norm;
+        }
       }
       // Turkey-only platform: city must be one of the 81 provinces.
       const cityVal = typeof city === 'string' && city.trim() ? city.trim() : undefined;
@@ -271,9 +294,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         latitude: lat,
         longitude: lng,
         isPublicLocation: typeof isPublicLocation === 'boolean' ? isPublicLocation : undefined,
+        instagramHandle: instagramVal,
       };
 
-      const providerStatus = evaluateArtistActivation(me, pUpdate);
+      const providerStatus = await evaluateArtistActivation(me, pUpdate);
 
       await updateProfile(me.id, {
         ...pUpdate,

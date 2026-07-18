@@ -30,6 +30,7 @@ export interface UserRow {
   latitude?: number;
   longitude?: number;
   isPublicLocation?: boolean;
+  instagramHandle?: string;   // normalized bare handle (no @ / URL); required at activation
   passHash: string;
   salt: string;
   emailVerified?: boolean;

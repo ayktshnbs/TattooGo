@@ -4,6 +4,7 @@ import { DashboardLayout } from '../../components/DashboardLayout';
 import { Field, Input, Textarea, Select, ChoiceGroup, UploadImage } from '../../components/Form';
 import { StatsCard } from '../../components/Cards';
 import { Empty, Loading, ErrorNote } from '../../components/Empty';
+import { LocationPinPicker } from '../../components/LocationPinPicker';
 import { useLang } from '../../i18n/LangContext';
 import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
@@ -222,7 +223,7 @@ export function AddTattoo() {
   const [busy, setBusy] = useState(false);
   const ok = title.trim().length > 0 && !!image && !busy;
   return (
-    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme ekle' : 'Add tattoo'} subtitle={lang === 'tr' ? 'Portföyünüze yeni bir parça ekleyin — incelemeden sonra ana sayfada.' : 'Add a new piece — it reaches the landing feed after review.'}>
+    <DashboardLayout scope="studio" title={lang === 'tr' ? 'Dövme ekle' : 'Add tattoo'} subtitle={lang === 'tr' ? 'Portföyünüze yeni bir parça ekleyin. Aktif profillerin çalışmaları anında görünür.' : 'Add a new piece to your portfolio. Uploads by active profiles appear immediately.'}>
       <div className="split">
         <form
           className="col"
@@ -242,7 +243,7 @@ export function AddTattoo() {
         >
           {notice && (
             <div className="card card-pad" style={{ marginBottom: 16, borderColor: 'var(--ink)' }}>
-              <span className="mono">✓ {lang === 'tr' ? 'Gönderildi — incelendikten sonra yayınlanır.' : 'Submitted — appears in the feed once reviewed.'}</span>
+              <span className="mono">✓ {lang === 'tr' ? 'Yüklendi.' : 'Uploaded.'}</span>
             </div>
           )}
           {error && <div style={{ marginBottom: 16 }}><ErrorNote message={error} /></div>}
@@ -302,6 +303,7 @@ export function AddTattoo() {
 export function GiveOffer() {
   useReveal();
   const { lang } = useLang();
+  const { user } = useAuth();
   const { data, error, reload } = useLoad(() => requests.list(true));
   const params = new URLSearchParams(window.location.search);
   const [requestId, setRequestId] = useState(params.get('request') ?? '');
@@ -312,10 +314,29 @@ export function GiveOffer() {
   const [done, setDone] = useState(false);
   const [err, setErr] = useState('');
   const selected = (data ?? []).find(r => r.id === requestId) ?? null;
+  const notActive = user?.providerStatus && user.providerStatus !== 'active';
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Teklif ver' : 'Send an offer'} subtitle={lang === 'tr' ? 'Açık müşteri istekleri — gerçek zamanlı.' : 'Open customer briefs — live.'}>
-      {error && <ErrorNote message={error} />}
-      {!data && !error && <Loading />}
+      {notActive && (
+        <div className="card card-pad" style={{ marginBottom: 20, borderColor: 'var(--ink)' }}>
+          <strong>
+            {user?.providerStatus === 'pending_profile'
+              ? (lang === 'tr' ? 'Teklif verebilmek için profilinizi tamamlayın.' : 'Complete your profile to send offers.')
+              : user?.providerStatus === 'needs_review'
+                ? (lang === 'tr' ? 'Profiliniz inceleniyor.' : 'Your profile is under review.')
+                : (lang === 'tr' ? 'Hesabınız askıya alındı.' : 'Your account is suspended.')}
+          </strong>
+          {user?.providerStatus === 'pending_profile' && (
+            <div style={{ marginTop: 10 }}>
+              <Link to="/studio/profile" className="btn btn-sm btn-accent">
+                {lang === 'tr' ? 'Profili Tamamla' : 'Complete profile'}
+              </Link>
+            </div>
+          )}
+        </div>
+      )}
+      {error && !notActive && <ErrorNote message={error} />}
+      {!data && !error && !notActive && <Loading />}
       {data && (data.length === 0 ? (
         <Empty title={lang === 'tr' ? 'Şu an açık istek yok' : 'No open briefs right now'} body={lang === 'tr' ? 'Müşteriler istek yayınladıkça burada görünür.' : 'When customers publish requests they appear here.'} />
       ) : (
@@ -592,9 +613,12 @@ export function StudioProfile() {
         <strong>{lang === 'tr' ? 'Profiliniz eksik' : 'Your profile is incomplete'}</strong>
         <p style={{ margin: '8px 0 0', fontSize: 14 }}>
           {lang === 'tr'
-            ? 'Aktif olmak ve müşterilerden gelen isteklere teklif verebilmek için profil bilgilerinizi (isim, şehir, ilçe, biyografi, stiller ve konum ayarları) tamamlayın.'
-            : 'To become active and send offers to customer requests, you must complete your profile (name, city, district, bio, styles, and location settings).'}
+            ? 'Aktif olmak ve teklif verebilmek için profilinizi tamamlayın: isim, şehir, ilçe, biyografi, stiller, konum, Instagram ve en az 3 portfolyo görseli.'
+            : 'To become active and send offers you must complete your profile: name, city, district, bio, styles, location, Instagram and at least 3 portfolio images.'}
         </p>
+        <Link to="/studio/profile" className="btn btn-sm" style={{ marginTop: 12, background: 'var(--paper)', color: 'var(--ink)', borderColor: 'var(--paper)' }}>
+          {lang === 'tr' ? 'Profili Tamamla' : 'Complete profile'}
+        </Link>
       </div>
     );
   } else if (user?.providerStatus === 'needs_review') {
@@ -664,19 +688,14 @@ function ProfileEditor() {
   const [city, setCity] = useState(user?.city ?? CITIES[0]);
   const [district, setDistrict] = useState(user?.district ?? '');
   const [addr, setAddr] = useState(user?.publicAddressLabel ?? '');
-  const [lat, setLat] = useState(user?.latitude != null ? String(user.latitude) : '');
-  const [lng, setLng] = useState(user?.longitude != null ? String(user.longitude) : '');
+  // Coordinates are stored internally by the map pin; users never see numbers.
+  const [lat, setLat] = useState<number | null>(user?.latitude ?? null);
+  const [lng, setLng] = useState<number | null>(user?.longitude ?? null);
   const [isPublic, setIsPublic] = useState(user?.isPublicLocation ?? false);
+  const [instagram, setInstagram] = useState(user?.instagramHandle ?? '');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
-
-  const latNum = lat.trim() ? Number(lat) : null;
-  const lngNum = lng.trim() ? Number(lng) : null;
-  // Turkey-only: pins must fall inside approximate Turkey bounds (backend enforces too).
-  const coordsValid = (!lat.trim() && !lng.trim()) ||
-    (latNum != null && lngNum != null &&
-     latNum >= 35.5 && latNum <= 42.5 && lngNum >= 25.5 && lngNum <= 45.0);
 
   // Multi-select styles: toggle on/off, capped at MAX_STYLES.
   const toggleStyle = (key: string) => setStyles(prev =>
@@ -741,34 +760,49 @@ function ProfileEditor() {
       <Field label={lang === 'tr' ? 'İlçe' : 'District'}>
         <Input value={district} onChange={(e) => setDistrict(e.target.value)} placeholder={lang === 'tr' ? 'ör. Karaköy' : 'e.g. Karaköy'} />
       </Field>
-      <Field label={lang === 'tr' ? 'Herkese açık adres etiketi (opsiyonel)' : 'Public address label (optional)'}>
-        <Input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder={lang === 'tr' ? 'ör. Karaköy, tünel yakını' : 'e.g. Karaköy, near the tunnel'} />
+      <Field label={lang === 'tr' ? 'Açık adres / konum açıklaması' : 'Open address / location description'}>
+        <Input
+          value={addr}
+          onChange={(e) => setAddr(e.target.value)}
+          placeholder={lang === 'tr' ? 'ör. Karaköy, tünel yakını' : 'e.g. Karaköy, near the tunnel'}
+        />
       </Field>
-      <div className="row gap-3 wrap">
-        <Field label={lang === 'tr' ? 'Enlem (lat)' : 'Latitude'}>
-          <Input value={lat} onChange={(e) => setLat(e.target.value)} placeholder="41.0256" inputMode="decimal" />
-        </Field>
-        <Field label={lang === 'tr' ? 'Boylam (lng)' : 'Longitude'}>
-          <Input value={lng} onChange={(e) => setLng(e.target.value)} placeholder="28.9744" inputMode="decimal" />
-        </Field>
-      </div>
-      {!coordsValid && <span className="mono text-muted" style={{ fontSize: 11 }}>{lang === 'tr' ? 'Türkiye sınırları içinde geçerli koordinat girin veya boş bırakın.' : 'Enter valid coordinates within Turkey or leave both blank.'}</span>}
+      <Field label="Instagram">
+        <Input
+          value={instagram}
+          onChange={(e) => setInstagram(e.target.value)}
+          placeholder="@handle"
+          autoCapitalize="none"
+          autoCorrect="off"
+        />
+      </Field>
       <label className="row gap-2 center" style={{ cursor: 'pointer' }}>
         <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
-        <span className="mono">{lang === 'tr' ? 'Haritada göster' : 'Show on discovery map'}</span>
+        <span className="mono">{lang === 'tr' ? 'Haritada görünmek istiyorum' : 'I want to appear on the map'}</span>
       </label>
-      <div className="row gap-3">
+      {isPublic && (
+        <LocationPinPicker
+          city={city}
+          lat={lat}
+          lng={lng}
+          onChange={(la, ln) => { setLat(la); setLng(ln); }}
+        />
+      )}
+      <div className="row gap-3" style={{ marginTop: 4 }}>
         <button
           className="btn btn-sm btn-accent"
-          disabled={busy || !coordsValid}
+          disabled={busy}
           onClick={async () => {
             setBusy(true); setError(''); setSaved(false);
             try {
               const me = await auth.updateProfile({
                 name: name.trim(), bio: bio.trim(), styles,
                 city, district: district.trim(), publicAddressLabel: addr.trim(),
-                latitude: latNum ?? undefined, longitude: lngNum ?? undefined,
+                // Only send coords when public location is on; otherwise leave existing untouched.
+                latitude: isPublic ? (lat ?? undefined) : undefined,
+                longitude: isPublic ? (lng ?? undefined) : undefined,
                 isPublicLocation: isPublic,
+                instagramHandle: instagram.trim() ? instagram.trim() : null,
               });
               setUser(me);
               setSaved(true);
@@ -779,11 +813,8 @@ function ProfileEditor() {
             }
           }}
         >
-          {busy ? '…' : (lang === 'tr' ? 'Konumu kaydet' : 'Save location')}
+          {busy ? '…' : (lang === 'tr' ? 'Profili kaydet' : 'Save profile')}
         </button>
-        <a className="mono text-muted" href="https://www.google.com/maps" target="_blank" rel="noreferrer" style={{ fontSize: 11, alignSelf: 'center', textDecoration: 'underline' }}>
-          {lang === 'tr' ? 'Koordinat bul' : 'Find coordinates'}
-        </a>
       </div>
     </div>
   );

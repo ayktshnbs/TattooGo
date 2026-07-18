@@ -109,6 +109,7 @@ export function publicUser(u: UserRow) {
   return {
     // Public "role" is the provider type — the legacy role column is vestigial.
     id: u.id, name: u.name, role: u.providerType ?? u.role, city: u.city, styles: u.styles, bio: u.bio, createdAt: u.createdAt,
+    instagramHandle: u.instagramHandle ?? undefined,
     district: u.district,
     hasPublicLocation: locPublic && u.latitude != null && u.longitude != null,
     latitude: locPublic ? u.latitude : undefined,

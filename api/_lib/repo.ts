@@ -40,6 +40,7 @@ const mapUser = (r: Any): UserRow => ({
   latitude: r.latitude == null ? undefined : Number(r.latitude),
   longitude: r.longitude == null ? undefined : Number(r.longitude),
   isPublicLocation: r.is_public_location as boolean ?? false,
+  instagramHandle: (r.instagram_handle as string | null) ?? undefined,
   passHash: r.pass_hash as string, salt: r.salt as string,
   emailVerified: r.email_verified as boolean,
   sessionEpoch: r.session_epoch as number,
@@ -89,12 +90,18 @@ export interface PortfolioItem {
   id: string; artistId: string; artistName: string; title: string; style: string;
   tags: string[]; imageUrl: string; imageRatio: number;
   status: 'pending' | 'approved'; createdAt: string; ts: number;
+  hiddenAt?: number;   // soft-hide (admin or auto at 3 distinct reports)
+  hiddenBy?: string;
+  reportCount?: number;
 }
 
 const mapPortfolio = (r: Any): PortfolioItem => ({
   id: r.id as string, artistId: r.artist_id as string, artistName: r.artist_name as string,
   title: r.title as string, style: r.style as string, tags: (r.tags as string[]) ?? [],
   imageUrl: r.image_url as string, imageRatio: Number(r.image_ratio),
+  hiddenAt: r.hidden_at == null ? undefined : Number(r.hidden_at),
+  hiddenBy: (r.hidden_by as string | null) ?? undefined,
+  reportCount: r.report_count == null ? 0 : Number(r.report_count),
   status: r.status as PortfolioItem['status'], createdAt: r.created_at as string, ts: Number(r.ts),
 });
 
@@ -234,11 +241,11 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
              COUNT(DISTINCT p.id)::int AS portfolio_count,
              (SELECT ARRAY(
                 SELECT p2.image_url FROM portfolio_items p2
-                WHERE p2.artist_id = u.id AND p2.status = 'approved'
+                WHERE p2.artist_id = u.id AND p2.hidden_at IS NULL
                 ORDER BY p2.ts DESC LIMIT 3)) AS preview_images
       FROM users u
       LEFT JOIN reviews r ON r.artist_id = u.id AND r.hidden_at IS NULL
-      LEFT JOIN portfolio_items p ON p.artist_id = u.id AND p.status = 'approved'
+      LEFT JOIN portfolio_items p ON p.artist_id = u.id AND p.hidden_at IS NULL
       WHERE u.provider_type IN ('artist','studio')
         AND u.provider_status = 'active'
         AND u.deactivated_at IS NULL
@@ -307,6 +314,7 @@ export interface ProfileUpdate {
   latitude?: number | null;
   longitude?: number | null;
   isPublicLocation?: boolean;
+  instagramHandle?: string | null;   // null clears; undefined leaves as-is
   providerStatus?: UserRow['providerStatus'];
 }
 
@@ -323,6 +331,11 @@ export async function updateProfile(userId: string, p: ProfileUpdate): Promise<v
       latitude = COALESCE(${p.latitude ?? null}::double precision, latitude),
       longitude = COALESCE(${p.longitude ?? null}::double precision, longitude),
       is_public_location = COALESCE(${p.isPublicLocation ?? null}, is_public_location),
+      instagram_handle = CASE
+        WHEN ${p.instagramHandle === null} THEN NULL
+        WHEN ${p.instagramHandle === undefined} THEN instagram_handle
+        ELSE ${p.instagramHandle ?? null}
+      END,
       provider_status = COALESCE(${p.providerStatus ?? null}, provider_status)
       WHERE id = ${userId}`;
     return;
@@ -339,6 +352,7 @@ export async function updateProfile(userId: string, p: ProfileUpdate): Promise<v
   if (p.latitude !== undefined) u.latitude = p.latitude ?? undefined;
   if (p.longitude !== undefined) u.longitude = p.longitude ?? undefined;
   if (p.isPublicLocation !== undefined) u.isPublicLocation = p.isPublicLocation;
+  if (p.instagramHandle !== undefined) u.instagramHandle = p.instagramHandle ?? undefined;
   if (p.providerStatus !== undefined) u.providerStatus = p.providerStatus;
   await writeCollection('users', users);
 }
@@ -693,20 +707,22 @@ export async function createReview(
 // Blob-mode portfolio rows live in the legacy feed index shape.
 interface FeedEntryLegacy extends PortfolioItem { likes?: number; views?: number; swatch?: string; source?: string }
 
+/** Public feed: report-based moderation, no manual approval. Visible when the
+ *  item is not hidden AND the owner is an active, non-deactivated provider. */
 export async function listApprovedPortfolio(): Promise<PortfolioItem[]> {
   if (usePg) {
     const rows = await sql`
       SELECT p.* FROM portfolio_items p
       JOIN users u ON u.id = p.artist_id
-      WHERE p.status = 'approved' AND u.provider_type IS NOT NULL
+      WHERE p.hidden_at IS NULL AND u.provider_type IS NOT NULL
         AND u.provider_status = 'active' AND u.deactivated_at IS NULL
       ORDER BY p.ts DESC LIMIT 200`;
     return rows.map(mapPortfolio);
   }
   const feed = await readFeedIndex<FeedEntryLegacy>();
   const users = await readCollection<UserRow>('users');
-  const activeIds = new Set(users.filter(u => u.providerStatus === 'active').map(u => u.id));
-  return feed.filter(e => e.status !== 'pending' && activeIds.has(e.artistId));
+  const activeIds = new Set(users.filter(u => u.providerStatus === 'active' && !u.deactivatedAt).map(u => u.id));
+  return feed.filter(e => activeIds.has(e.artistId));
 }
 
 export async function listPortfolioByArtist(artistId: string): Promise<PortfolioItem[]> {
@@ -719,21 +735,32 @@ export async function listPendingPortfolio(): Promise<PortfolioItem[]> {
   return (await readFeedIndex<FeedEntryLegacy>()).filter(e => e.status === 'pending');
 }
 
+/** Public portfolio for one artist: visible iff not hidden and owner active. */
 export async function listApprovedPortfolioByArtist(artistId: string): Promise<PortfolioItem[]> {
   if (usePg) {
     const rows = await sql`
       SELECT p.* FROM portfolio_items p
       JOIN users u ON u.id = p.artist_id
-      WHERE p.artist_id = ${artistId} AND p.status = 'approved'
-        AND u.provider_type IS NOT NULL AND u.provider_status = 'active'
+      WHERE p.artist_id = ${artistId} AND p.hidden_at IS NULL
+        AND u.provider_type IS NOT NULL AND u.provider_status = 'active' AND u.deactivated_at IS NULL
       ORDER BY p.ts DESC LIMIT 200`;
     return rows.map(mapPortfolio);
   }
   const feed = await readFeedIndex<FeedEntryLegacy>();
   const users = await readCollection<UserRow>('users');
   const user = users.find(u => u.id === artistId);
-  if (user?.providerStatus !== 'active') return [];
-  return feed.filter(e => e.artistId === artistId && e.status !== 'pending');
+  if (user?.providerStatus !== 'active' || user?.deactivatedAt) return [];
+  return feed.filter(e => e.artistId === artistId);
+}
+
+/** Portfolio-count for activation: distinct visible (not-hidden) uploads. */
+export async function countVisiblePortfolioForActivation(artistId: string): Promise<number> {
+  if (usePg) {
+    const rows = await sql`SELECT COUNT(*)::int AS c FROM portfolio_items
+      WHERE artist_id = ${artistId} AND hidden_at IS NULL`;
+    return Number(rows[0]?.c ?? 0);
+  }
+  return (await readFeedIndex<FeedEntryLegacy>()).filter(e => e.artistId === artistId).length;
 }
 
 /** Aggregate, public-safe: how many jobs this artist has completed. */
@@ -963,4 +990,125 @@ export async function recordWebhookEvent(eventId: string): Promise<boolean> {
     if (err instanceof Error && /unique|duplicate/i.test(err.message)) return false;
     throw err;
   }
+}
+
+/* ================== portfolio reports / soft-hide ================== */
+
+export interface CreateReportInput {
+  itemId: string;
+  reporterId: string | null;
+  ipHash: string;
+  reason: string;
+  note?: string;
+}
+export type ReportOutcome = 'ok' | 'rate-limited' | 'not-found' | 'not-public';
+
+/** Create a report row + refresh the item's report_count. If the distinct
+ *  reporter count crosses 3, auto-hide the item (hidden_by='auto:reports').
+ *  Rate-limit: at most 1 report per (item, ipHash) per 24h. */
+export async function createPortfolioReport(input: CreateReportInput): Promise<ReportOutcome> {
+  if (!usePg) return 'ok';
+  // Item must exist AND be publicly visible right now (not already hidden,
+  // owner active + not deactivated). This prevents drive-by reports on
+  // hidden/private items and avoids IDOR-style probing.
+  const found = await sql`SELECT p.id, p.hidden_at, u.provider_status, u.deactivated_at, u.provider_type
+    FROM portfolio_items p JOIN users u ON u.id = p.artist_id
+    WHERE p.id = ${input.itemId} LIMIT 1`;
+  if (found.length === 0) return 'not-found';
+  const row = found[0];
+  const publiclyVisible = row.hidden_at == null && row.provider_type != null
+    && row.provider_status === 'active' && row.deactivated_at == null;
+  if (!publiclyVisible) return 'not-public';
+
+  // Rate limit: at most 1 per (item, ipHash) in 24h.
+  const since = Date.now() - 24 * 60 * 60 * 1000;
+  const existing = await sql`SELECT id FROM portfolio_reports
+    WHERE item_id = ${input.itemId} AND reporter_ip_hash = ${input.ipHash}
+      AND created_at > ${since} LIMIT 1`;
+  if (existing.length > 0) return 'rate-limited';
+
+  await sql`INSERT INTO portfolio_reports (id, item_id, reporter_id, reporter_ip_hash, reason, note, created_at)
+    VALUES (${newId('rpt')}, ${input.itemId}, ${input.reporterId}, ${input.ipHash},
+            ${input.reason}, ${input.note ?? null}, ${Date.now()})`;
+  // Refresh count + auto-hide if it just crossed 3 distinct sources.
+  const now = Date.now();
+  await sql`UPDATE portfolio_items p SET
+    report_count = (SELECT COUNT(DISTINCT reporter_ip_hash) FROM portfolio_reports WHERE item_id = ${input.itemId}),
+    hidden_at = CASE
+      WHEN hidden_at IS NOT NULL THEN hidden_at
+      WHEN (SELECT COUNT(DISTINCT reporter_ip_hash) FROM portfolio_reports WHERE item_id = ${input.itemId}) >= 3
+        THEN ${now}
+      ELSE NULL
+    END,
+    hidden_by = CASE
+      WHEN hidden_at IS NOT NULL THEN hidden_by
+      WHEN (SELECT COUNT(DISTINCT reporter_ip_hash) FROM portfolio_reports WHERE item_id = ${input.itemId}) >= 3
+        THEN 'auto:reports'
+      ELSE hidden_by
+    END
+    WHERE p.id = ${input.itemId}`;
+  return 'ok';
+}
+
+/** Admin actions on a portfolio item. Return prior state for the audit log. */
+export async function adminHidePortfolioItem(itemId: string, adminId: string) {
+  if (!usePg) return { ok: false as const };
+  const rows = await sql`UPDATE portfolio_items SET hidden_at = ${Date.now()}, hidden_by = ${adminId}
+    WHERE id = ${itemId} AND hidden_at IS NULL RETURNING id`;
+  return rows.length === 1 ? { ok: true as const } : { ok: false as const };
+}
+export async function adminUnhidePortfolioItem(itemId: string) {
+  if (!usePg) return { ok: false as const };
+  const rows = await sql`UPDATE portfolio_items SET hidden_at = NULL, hidden_by = NULL
+    WHERE id = ${itemId} AND hidden_at IS NOT NULL RETURNING id`;
+  return rows.length === 1 ? { ok: true as const } : { ok: false as const };
+}
+export async function adminDeletePortfolioItem(itemId: string) {
+  if (!usePg) return { ok: false as const, imageUrl: undefined };
+  const rows = await sql`DELETE FROM portfolio_items WHERE id = ${itemId} RETURNING image_url`;
+  return rows.length === 1
+    ? { ok: true as const, imageUrl: rows[0].image_url as string }
+    : { ok: false as const, imageUrl: undefined };
+}
+
+export async function adminMarkReportsReviewed(itemId: string, adminId: string): Promise<number> {
+  if (!usePg) return 0;
+  const rows = await sql`UPDATE portfolio_reports SET reviewed_at = ${Date.now()}, reviewed_by = ${adminId}
+    WHERE item_id = ${itemId} AND reviewed_at IS NULL RETURNING id`;
+  return rows.length;
+}
+
+/** Admin view of items with any reports (reviewed or not) — reported queue. */
+export async function adminListReportedPortfolio() {
+  if (!usePg) return [];
+  const rows = await sql`SELECT p.id, p.artist_id, p.artist_name, p.title, p.style,
+           p.image_url, p.image_ratio, p.status, p.created_at, p.ts,
+           p.hidden_at, p.hidden_by, p.report_count,
+           u.provider_type, u.provider_status, u.deactivated_at,
+           (SELECT COUNT(*)::int FROM portfolio_reports r
+              WHERE r.item_id = p.id AND r.reviewed_at IS NULL) AS pending_reports,
+           (SELECT r.reason FROM portfolio_reports r
+              WHERE r.item_id = p.id ORDER BY r.created_at DESC LIMIT 1) AS latest_reason,
+           (SELECT r.note FROM portfolio_reports r
+              WHERE r.item_id = p.id AND r.note IS NOT NULL
+              ORDER BY r.created_at DESC LIMIT 1) AS latest_note
+    FROM portfolio_items p JOIN users u ON u.id = p.artist_id
+    WHERE p.report_count > 0
+       OR EXISTS (SELECT 1 FROM portfolio_reports r WHERE r.item_id = p.id AND r.reviewed_at IS NULL)
+    ORDER BY p.report_count DESC, p.ts DESC LIMIT 200`;
+  return rows.map(r => ({
+    id: r.id, artistId: r.artist_id, artistName: r.artist_name,
+    title: r.title, style: r.style,
+    imageUrl: r.image_url, imageRatio: Number(r.image_ratio),
+    status: r.status, createdAt: r.created_at, ts: Number(r.ts),
+    hiddenAt: r.hidden_at == null ? null : Number(r.hidden_at),
+    hiddenBy: r.hidden_by ?? null,
+    reportCount: Number(r.report_count ?? 0),
+    pendingReports: Number(r.pending_reports ?? 0),
+    latestReason: r.latest_reason ?? null,
+    latestNote: r.latest_note ?? null,
+    ownerProviderType: r.provider_type,
+    ownerProviderStatus: r.provider_status,
+    ownerDeactivated: r.deactivated_at != null,
+  }));
 }

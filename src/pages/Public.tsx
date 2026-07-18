@@ -6,7 +6,7 @@ import { SectionHeader } from '../components/SectionHeader';
 import { Field, Input, Select, Textarea, ChoiceGroup } from '../components/Form';
 import { Empty, Loading } from '../components/Empty';
 import { STYLES, CITIES, styleLabel } from '../data/mock';
-import { auth, artists as artistsApi, type ApiArtist, type ApiArtistProfile, type ApiPortfolioItem } from '../lib/api';
+import { auth, artists as artistsApi, reports, type ApiArtist, type ApiArtistProfile, type ApiPortfolioItem, type ReportReason } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
@@ -174,6 +174,76 @@ export function BrowseArtists() {
 }
 
 /* ---------- Public artist / studio profile ---------- */
+/**
+ * Compact report control shown on each public portfolio image. Inline flow,
+ * no modal system: click "Şikayet et" → tiny reason menu → server submits.
+ * Anonymous is fine (server keeps only a hashed IP for rate-limit).
+ */
+function ReportButton({ itemId }: { itemId: string }) {
+  const { lang } = useLang();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<'ok' | 'rate' | 'err' | null>(null);
+
+  const REASONS: { key: ReportReason; tr: string; en: string }[] = [
+    { key: 'inappropriate_content', tr: 'Uygunsuz içerik', en: 'Inappropriate content' },
+    { key: 'stolen_work',           tr: 'Çalıntı iş',      en: 'Stolen work' },
+    { key: 'spam_fake',             tr: 'Spam / sahte',    en: 'Spam / fake' },
+    { key: 'offensive_content',     tr: 'Rahatsız edici',  en: 'Offensive content' },
+    { key: 'wrong_category',        tr: 'Yanlış kategori', en: 'Wrong category' },
+    { key: 'other',                 tr: 'Diğer',           en: 'Other' },
+  ];
+
+  const submit = async (reason: ReportReason) => {
+    setBusy(true);
+    try {
+      await reports.create(itemId, reason);
+      setDone('ok'); setOpen(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      setDone(msg.includes('already reported') ? 'rate' : 'err');
+      setOpen(false);
+    } finally { setBusy(false); }
+  };
+
+  if (done === 'ok') return <span className="mono text-muted" style={{ fontSize: 10 }}>✓ {lang === 'tr' ? 'Şikayet alındı' : 'Report received'}</span>;
+  if (done === 'rate') return <span className="mono text-muted" style={{ fontSize: 10 }}>{lang === 'tr' ? 'Zaten şikayet ettiniz' : 'Already reported'}</span>;
+  if (done === 'err') return <span className="mono text-muted" style={{ fontSize: 10 }}>{lang === 'tr' ? 'Şikayet gönderilemedi' : 'Report failed'}</span>;
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mono text-muted"
+        style={{ fontSize: 10, textDecoration: 'underline', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}
+      >
+        {lang === 'tr' ? 'Şikayet et' : 'Report'}
+      </button>
+    );
+  }
+  return (
+    <div className="col gap-1" style={{ fontSize: 10 }}>
+      <span className="mono text-muted">{lang === 'tr' ? 'Şikayet nedeni:' : 'Report reason:'}</span>
+      <div className="col gap-1">
+        {REASONS.map(r => (
+          <button
+            key={r.key}
+            disabled={busy}
+            onClick={() => submit(r.key)}
+            className="mono"
+            style={{ fontSize: 10, textAlign: 'left', background: 'none', border: 0, padding: '2px 0', textDecoration: 'underline', cursor: busy ? 'default' : 'pointer' }}
+          >
+            {lang === 'tr' ? r.tr : r.en}
+          </button>
+        ))}
+        <button onClick={() => setOpen(false)} className="mono text-muted" style={{ fontSize: 10, background: 'none', border: 0, padding: '2px 0', textAlign: 'left' }}>
+          {lang === 'tr' ? 'Vazgeç' : 'Cancel'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ArtistPublicProfile() {
   const { lang } = useLang();
   const { artistId } = useParams<{ artistId: string }>();
@@ -236,6 +306,19 @@ export function ArtistPublicProfile() {
                 {data.profile.bio && (
                   <p className="text-muted" style={{ maxWidth: 640, fontSize: 15, margin: '28px 0 0' }}>{data.profile.bio}</p>
                 )}
+                {data.profile.instagramHandle && (
+                  <p style={{ margin: '12px 0 0', fontSize: 14 }}>
+                    <a
+                      href={`https://instagram.com/${data.profile.instagramHandle}`}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow"
+                      className="mono"
+                      style={{ textDecoration: 'underline' }}
+                    >
+                      Instagram · @{data.profile.instagramHandle}
+                    </a>
+                  </p>
+                )}
 
                 {/* Portfolio — approved items only (server-enforced) */}
                 <div className="row between center" style={{ margin: '56px 0 20px', borderBottom: '1px solid var(--hairline)', paddingBottom: 10 }}>
@@ -255,6 +338,7 @@ export function ArtistPublicProfile() {
                         <div className="card-pad col gap-1">
                           <strong style={{ fontSize: 14 }}>{p.title}</strong>
                           <span className="mono text-muted" style={{ fontSize: 10 }}>{p.style}{p.tags.length ? ` · ${p.tags.slice(0, 3).join(' · ')}` : ''}</span>
+                          <div style={{ marginTop: 6 }}><ReportButton itemId={p.id} /></div>
                         </div>
                       </article>
                     ))}

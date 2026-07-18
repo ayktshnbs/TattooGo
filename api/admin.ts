@@ -1,7 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { del } from '@vercel/blob';
 import { requireAdmin } from './_lib/auth.js';
-import { moderatePortfolio } from './_lib/repo.js';
+import {
+  adminHidePortfolioItem, adminUnhidePortfolioItem, adminDeletePortfolioItem,
+  adminMarkReportsReviewed, adminListReportedPortfolio,
+} from './_lib/repo.js';
 import {
   recordAudit, listAuditLog, adminSummary,
   adminListUsers, adminGetUser, adminSetProviderStatus,
@@ -53,9 +56,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return u ? res.status(200).json(u) : res.status(404).json({ error: 'not found' });
       }
       if (action === 'list-portfolio') {
-        const status = String(req.query.status ?? 'pending');
+        const status = String(req.query.status ?? 'all');
         if (!['pending', 'approved', 'all'].includes(status)) return res.status(400).json({ error: 'invalid status' });
         return res.status(200).json(await adminListPortfolio(status as 'pending' | 'approved' | 'all'));
+      }
+      if (action === 'list-reported-portfolio') {
+        return res.status(200).json(await adminListReportedPortfolio());
       }
       if (action === 'list-requests') return res.status(200).json(await adminListRequests());
       if (action === 'list-offers')   return res.status(200).json(await adminListOffers());
@@ -116,20 +122,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json({ ok: true });
     }
 
-    if (action === 'approve-portfolio' || action === 'reject-portfolio') {
+    if (action === 'hide-portfolio-item') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const kind: 'approve' | 'reject' = action === 'approve-portfolio' ? 'approve' : 'reject';
-      const outcome = await moderatePortfolio(id, kind);
-      if (!outcome.ok) return res.status(404).json({ error: 'portfolio item not found' });
-      if (outcome.imageUrl) {
-        try { await del(outcome.imageUrl); } catch { /* orphaned blob is harmless */ }
-      }
+      const out = await adminHidePortfolioItem(id, admin.id);
+      if (!out.ok) return res.status(409).json({ error: 'not found or already hidden' });
+      await adminMarkReportsReviewed(id, admin.id);
+      await recordAudit({ adminUserId: admin.id, action, targetType: 'portfolio_item', targetId: id });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'unhide-portfolio-item') {
+      const { id } = req.body ?? {};
+      if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
+      const out = await adminUnhidePortfolioItem(id);
+      if (!out.ok) return res.status(409).json({ error: 'not found or not hidden' });
+      await recordAudit({ adminUserId: admin.id, action, targetType: 'portfolio_item', targetId: id });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'delete-portfolio-item') {
+      const { id } = req.body ?? {};
+      if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
+      const out = await adminDeletePortfolioItem(id);
+      if (!out.ok) return res.status(404).json({ error: 'not found' });
+      if (out.imageUrl) { try { await del(out.imageUrl); } catch { /* orphan is harmless */ } }
+      await recordAudit({ adminUserId: admin.id, action, targetType: 'portfolio_item', targetId: id });
+      return res.status(200).json({ ok: true });
+    }
+
+    if (action === 'mark-reports-reviewed') {
+      const { id } = req.body ?? {};
+      if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
+      const n = await adminMarkReportsReviewed(id, admin.id);
       await recordAudit({
         adminUserId: admin.id, action,
         targetType: 'portfolio_item', targetId: id,
+        newValue: { reviewed: n },
       });
-      return res.status(200).json({ ok: true });
+      return res.status(200).json({ ok: true, reviewed: n });
     }
 
     if (action === 'hide-review') {

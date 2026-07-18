@@ -3,10 +3,11 @@ import { put } from '@vercel/blob';
 import { getSessionUser } from './_lib/auth.js';
 import {
   listApprovedPortfolio, listPortfolioByArtist,
-  createPortfolioItem, countRecentPortfolioByArtist, countPendingPortfolio,
+  createPortfolioItem, countRecentPortfolioByArtist, updateProfile,
   type PortfolioItem,
 } from './_lib/repo.js';
 import { isValidStyle } from './_lib/styles.js';
+import { evaluateArtistActivation } from './auth.js';
 
 /**
  * Portfolio uploads → the public landing feed.
@@ -26,7 +27,6 @@ import { isValidStyle } from './_lib/styles.js';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PER_ARTIST_PER_DAY = 10;
-const MAX_PENDING_QUEUE = 50;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
@@ -67,9 +67,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (await countRecentPortfolioByArtist(user.id, dayAgo) >= MAX_PER_ARTIST_PER_DAY) {
         return res.status(429).json({ error: 'daily upload limit reached' });
       }
-      if (await countPendingPortfolio() >= MAX_PENDING_QUEUE) {
-        return res.status(429).json({ error: 'moderation queue is full — try again later' });
-      }
 
       const ratio = Number(imageRatio);
       const id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -84,12 +81,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         tags: Array.isArray(tags) ? tags.filter((t): t is string => typeof t === 'string' && t.length <= 40).slice(0, 8) : [],
         imageUrl: blob.url,
         imageRatio: Number.isFinite(ratio) ? Math.min(2.5, Math.max(0.4, ratio)) : 1,
-        status: 'pending',
+        // Report-based moderation: uploads are public by default while the
+        // owner is active; admin can hide/delete later or reports auto-hide.
+        status: 'approved',
         createdAt: new Date().toISOString().slice(0, 10),
         ts: Date.now(),
       };
       await createPortfolioItem(item);
-      return res.status(202).json(item);
+      // The 3rd upload can be the trigger that completes activation — re-run
+      // the gate now so the provider goes active on the same request. Passes
+      // empty patch since nothing else changed; the gate reads the DB count.
+      if (user.providerType && user.providerStatus === 'pending_profile') {
+        const nextStatus = await evaluateArtistActivation(user, {});
+        if (nextStatus && nextStatus !== user.providerStatus) {
+          await updateProfile(user.id, { providerStatus: nextStatus });
+        }
+      }
+      return res.status(201).json(item);
     }
 
     res.setHeader('Allow', 'GET, POST');
