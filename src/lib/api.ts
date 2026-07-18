@@ -402,8 +402,10 @@ export type ReportReason =
   | 'offensive_content' | 'wrong_category' | 'other';
 
 export const reports = {
+  // Co-located with uploads.ts on the server to stay under the Vercel Hobby
+  // 12-function cap; anonymous is fine.
   create: (itemId: string, reason: ReportReason, note?: string) =>
-    call<{ ok: true }>('/api/reports', {
+    call<{ ok: true }>('/api/uploads?action=report', {
       method: 'POST',
       body: JSON.stringify({ itemId, reason, note }),
     }),

@@ -1,32 +1,44 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createHash } from 'node:crypto';
 import { put } from '@vercel/blob';
 import { getSessionUser } from './_lib/auth.js';
 import {
   listApprovedPortfolio, listPortfolioByArtist,
   createPortfolioItem, countRecentPortfolioByArtist, updateProfile,
+  createPortfolioReport,
   type PortfolioItem,
 } from './_lib/repo.js';
 import { isValidStyle } from './_lib/styles.js';
 import { evaluateArtistActivation } from './auth.js';
 
 /**
- * Portfolio uploads → the public landing feed.
+ * Portfolio surface — uploads + abuse reports.
  *
- * Records live in the repo (Postgres `portfolio_items` when DATABASE_URL is
- * set); ONLY the image files live in Vercel Blob.
+ *   GET  /api/uploads                   → public feed (visible items only)
+ *   GET  /api/uploads?mine=1            → the signed-in provider's own items
+ *   POST /api/uploads                   → provider creates an item (session)
+ *   POST /api/uploads?action=report     → anonymous OR authed report on an item
  *
- * GET   /api/uploads          → approved feed (public)
- * GET   /api/uploads?mine=1   → the signed-in artist's own items
- * POST  /api/uploads          → artist publishes; pending until approved
- *
- * Moderation moved to /api/admin (session-based admin auth): the old shared
- * ADMIN_TOKEN + PATCH here have been removed. Approve/reject now goes through
- * POST /api/admin {action:'approve-portfolio'|'reject-portfolio', id} and is
- * audit-logged.
+ * Admin moderation actions (hide/unhide/delete/mark-reviewed) live under
+ * /api/admin. The report path is co-located here (Vercel Hobby has a 12
+ * function cap and reports are part of the portfolio domain).
  */
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PER_ARTIST_PER_DAY = 10;
+
+const REPORT_REASONS = new Set([
+  'inappropriate_content', 'stolen_work', 'spam_fake',
+  'offensive_content', 'wrong_category', 'other',
+]);
+const AUTH_SECRET_FOR_HASH = process.env.AUTH_SECRET ?? '';
+
+function clientIpHash(req: VercelRequest): string {
+  const xff = (req.headers['x-forwarded-for'] as string | undefined) ?? '';
+  const first = xff.split(',')[0]?.trim();
+  const ip = first || req.socket?.remoteAddress || '';
+  return createHash('sha256').update(ip + '|' + AUTH_SECRET_FOR_HASH).digest('hex');
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
@@ -44,6 +56,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (req.method === 'POST') {
+      // Report path — anonymous OR authed; keyed by ?action=report so it
+      // shares an endpoint with the upload without changing existing calls.
+      if (req.query.action === 'report') {
+        const { itemId, reason, note } = req.body ?? {};
+        if (typeof itemId !== 'string' || !itemId) return res.status(400).json({ error: 'itemId required' });
+        if (typeof reason !== 'string' || !REPORT_REASONS.has(reason)) return res.status(400).json({ error: 'valid reason required' });
+        if (note !== undefined && (typeof note !== 'string' || note.length > 500)) return res.status(400).json({ error: 'note must be a string ≤ 500 chars' });
+        const reporter = await getSessionUser(req);
+        const outcome = await createPortfolioReport({
+          itemId, reporterId: reporter?.id ?? null,
+          ipHash: clientIpHash(req),
+          reason, note: typeof note === 'string' ? note.trim() : undefined,
+        });
+        if (outcome === 'not-found' || outcome === 'not-public') return res.status(404).json({ error: 'not found' });
+        if (outcome === 'rate-limited') return res.status(429).json({ error: 'already reported recently' });
+        return res.status(200).json({ ok: true });
+      }
+
       const user = await getSessionUser(req);
       if (!user || !user.providerType) {
         return res.status(403).json({ error: 'only signed-in artists can publish to the feed' });
