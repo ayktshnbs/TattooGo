@@ -79,6 +79,8 @@ export const auth = {
     call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'reset-password', token, password }) }),
   updateProfile: (input: ProfileUpdate) =>
     call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'update-profile', ...input }) }),
+  deleteAccount: () =>
+    call<{ ok: true; mode: 'deleted' | 'deactivated' }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'delete-account' }) }),
 };
 
 /* ---------- premium billing (artist/studio) ---------- */

@@ -4,10 +4,11 @@ import {
   hashPassword, verifyPassword, signSession, setSessionCookie, clearSessionCookie,
   getSessionUser, ownUser,
 } from './_lib/auth.js';
+import { del } from '@vercel/blob';
 import {
   findUserByEmail, createUser, setEmailVerified, setPassword,
   recordLoginFailure, clearLoginFailures, isLocked, createToken, consumeToken,
-  updateProfile, getUserById,
+  updateProfile, getUserById, deactivateAccount,
 } from './_lib/repo.js';
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 import { isTurkishCity, isInTurkeyBounds } from './_lib/cities.js';
@@ -133,6 +134,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const user = await findUserByEmail(email);
       // Identical error for unknown email and wrong password — no enumeration.
       if (!user) return res.status(401).json({ error: 'invalid email or password' });
+      // Deactivated accounts cannot log in (also blocked by email tombstone).
+      if (user.deactivatedAt) return res.status(401).json({ error: 'invalid email or password' });
       if (isLocked(user)) {
         return res.status(429).json({ error: 'too many attempts — try again in a few minutes' });
       }
@@ -259,6 +262,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
       const updated = await getUserById(me.id);
       return res.status(200).json(updated ? ownUser(updated) : { ok: true });
+    }
+
+    if (action === 'delete-account') {
+      const me = await getSessionUser(req);
+      if (!me) return res.status(401).json({ error: 'sign in required' });
+      // Self-only: acts strictly on the authenticated user's own id.
+      const outcome = await deactivateAccount(me.id);
+      // Remove the user's own Blob files (portfolio + request photos); best-effort.
+      for (const url of outcome.blobUrls) {
+        try { await del(url); } catch { /* orphaned blob is harmless */ }
+      }
+      clearSessionCookie(res);   // drop the current session immediately
+      return res.status(200).json({ ok: true, mode: outcome.mode });
     }
 
     return res.status(400).json({ error: 'unknown action' });

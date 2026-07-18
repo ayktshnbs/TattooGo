@@ -304,6 +304,25 @@ Creem's current docs** — the parser is defensive and that one file is the only
 place to adjust. Runs in **test mode** (`CREEM_API_BASE` = test host) until the
 live host + `PREMIUM_REQUIRED=true` are set (both deliberate, separate switches).
 
+## Account deletion / deactivation
+
+`POST /api/auth {action:'delete-account'}` — **self-only** (acts on the session
+user's id; anonymous → 401). Behavior (`deactivateAccount` in repo):
+- **No entanglements** (no offers/reviews/messages) → **hard delete** the row
+  (cascades requests/portfolio/tokens/subscriptions); the handler removes the
+  user's Blob files (portfolio + request photos).
+- **Otherwise** → **soft-delete / anonymize**: scrub name/bio/city/district/
+  location/styles, tombstone the email (`deleted+<id>@deleted.invalid`, frees it
+  + blocks login), set `deactivated_at`, **bump `session_epoch`** (revokes all
+  sessions), delete auth tokens + portfolio (+ blobs), cancel OPEN requests.
+  Transaction records (offers/reviews/messages) are preserved anonymized.
+
+`deactivated_at IS NOT NULL` accounts are excluded everywhere: `getSessionUser`
+returns null (logged out on every endpoint), login is refused, and the directory
+/ map / public profile / landing feed all filter them out. **A user cannot
+delete another user's account** — there is no id parameter; only the session id
+is used.
+
 ## Data source of truth
 
 **Postgres (Neon)** when `DATABASE_URL` is set — the repo (`api/_lib/repo.ts`)

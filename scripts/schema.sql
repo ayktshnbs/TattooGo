@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
   failed_logins  INTEGER NOT NULL DEFAULT 0,
   lock_until     BIGINT,                        -- ms epoch; login lockout
   created_at     TEXT NOT NULL,
-  provider_status TEXT                          -- 'active' | 'pending_profile' | 'needs_review' | 'suspended'
+  provider_status TEXT,                         -- 'active' | 'pending_profile' | 'needs_review' | 'suspended'
+  deactivated_at BIGINT                         -- ms epoch when the account was soft-deleted; excluded everywhere public, cannot log in
 );
 
 -- Discovery: filter registered artists/studios by city/district quickly.

@@ -98,6 +98,7 @@ export async function getSessionUser(req: VercelRequest): Promise<UserRow | null
   const user = await getUserById(session.uid);
   if (!user) return null;
   if ((session.sep ?? 0) !== (user.sessionEpoch ?? 0)) return null;
+  if (user.deactivatedAt) return null;   // soft-deleted accounts are logged out everywhere
   return user;
 }
 

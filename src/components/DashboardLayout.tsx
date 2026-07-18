@@ -1,5 +1,7 @@
-import { NavLink, Link, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../i18n/LangContext';
+import { useAuth, isArtistRole } from '../auth/AuthContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { Logo } from './Logo';
 import { Icon, type IconName } from './Icon';
@@ -124,13 +126,69 @@ function DashTopBar({ scope }: { scope: DashboardScope }) {
           <Link to={scope === 'customer' ? '/dashboard/messages' : '/studio/messages'} className="mono row center gap-2" aria-label="Messages">
             <Icon name="messages" size={18} /> <span className="dash-hide-sm">DM</span>
           </Link>
-          <Link to="#" className="mono row center gap-2" aria-label="Search">
-            <Icon name="search" size={18} />
-          </Link>
           <LanguageSwitcher />
+          <AccountMenu />
         </div>
       </div>
     </div>
+  );
+}
+
+/** Authenticated account menu — present on every dashboard page. Gives a
+ *  consistent Logout plus mode links + account settings from anywhere. */
+function AccountMenu() {
+  const { lang } = useLang();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const isProvider = isArtistRole(user?.role);
+  const initial = (user?.name?.trim()?.[0] ?? '·').toUpperCase();
+
+  const doLogout = async () => { setOpen(false); await logout(); navigate('/', { replace: true }); };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        className="row center gap-2"
+        aria-label={lang === 'tr' ? 'Hesap menüsü' : 'Account menu'}
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        style={{ padding: '4px 6px' }}
+      >
+        <span style={{ width: 30, height: 30, borderRadius: 999, background: 'var(--ink)', color: 'var(--paper)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{initial}</span>
+        <span className="mono text-muted" style={{ fontSize: 9 }}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+          <div
+            className="card"
+            style={{ position: 'absolute', right: 0, top: 'calc(100% + 8px)', zIndex: 51, width: 240, background: 'var(--paper)', boxShadow: 'var(--shadow-md)', padding: 8, display: 'flex', flexDirection: 'column', gap: 2 }}
+          >
+            <div className="col" style={{ padding: '8px 10px 10px' }}>
+              <strong style={{ fontSize: 14 }}>{user?.name}</strong>
+              <span className="text-muted" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis' }}>{user?.email}</span>
+            </div>
+            <div className="hr" />
+            <MenuLink to="/dashboard" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Müşteri paneli' : 'Customer dashboard'} />
+            {isProvider && <MenuLink to="/studio" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Stüdyo paneli' : 'Studio dashboard'} />}
+            <MenuLink to="/account" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Hesap ayarları' : 'Account settings'} />
+            <div className="hr" />
+            <button className="mono" onClick={doLogout} style={{ textAlign: 'left', padding: '10px', fontSize: 12, letterSpacing: '0.1em' }}>
+              {lang === 'tr' ? 'Çıkış yap' : 'Log out'}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MenuLink({ to, label, onClick }: { to: string; label: string; onClick: () => void }) {
+  return (
+    <Link to={to} onClick={onClick} style={{ padding: '10px', fontSize: 14, borderRadius: 4 }} className="row center between">
+      {label}
+    </Link>
   );
 }
 

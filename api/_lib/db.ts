@@ -38,6 +38,7 @@ export interface UserRow {
   lockUntil?: number;     // ms epoch
   createdAt: string;
   providerStatus?: 'active' | 'pending_profile' | 'needs_review' | 'suspended';
+  deactivatedAt?: number;  // ms epoch; set on soft-delete. Blocks login, hidden everywhere public.
 }
 
 export interface TokenRow {

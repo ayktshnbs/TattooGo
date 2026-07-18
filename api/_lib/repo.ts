@@ -47,6 +47,7 @@ const mapUser = (r: Any): UserRow => ({
   lockUntil: r.lock_until == null ? undefined : Number(r.lock_until),
   createdAt: r.created_at as string,
   providerStatus: r.provider_status as UserRow['providerStatus'],
+  deactivatedAt: r.deactivated_at == null ? undefined : Number(r.deactivated_at),
 });
 
 const mapRequest = (r: Any): RequestRow & { offerCount?: number } => ({
@@ -238,6 +239,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
       LEFT JOIN portfolio_items p ON p.artist_id = u.id AND p.status = 'approved'
       WHERE u.role IN ('artist','studio')
         AND u.provider_status = 'active'
+        AND u.deactivated_at IS NULL
         AND (${city}::text IS NULL OR u.city = ${city})
         AND (${district}::text IS NULL OR u.district = ${district})
         AND (${q}::text IS NULL OR LOWER(u.name) LIKE ${q})
@@ -268,7 +270,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
   const reviews = await readCollection<ReviewRow>('reviews');
   const feed = await readFeedIndex<FeedEntryLegacy>();
   return users
-    .filter(u => (u.role === 'artist' || u.role === 'studio') && u.providerStatus === 'active')
+    .filter(u => (u.role === 'artist' || u.role === 'studio') && u.providerStatus === 'active' && u.deactivatedAt == null)
     .filter(u => !city || u.city === city)
     .filter(u => !district || u.district === district)
     .filter(u => !q || u.name.toLowerCase().includes(q.replace(/%/g, '')))
@@ -672,7 +674,7 @@ export async function listApprovedPortfolio(): Promise<PortfolioItem[]> {
     const rows = await sql`
       SELECT p.* FROM portfolio_items p
       JOIN users u ON u.id = p.artist_id
-      WHERE p.status = 'approved' AND u.provider_status = 'active'
+      WHERE p.status = 'approved' AND u.provider_status = 'active' AND u.deactivated_at IS NULL
       ORDER BY p.ts DESC LIMIT 200`;
     return rows.map(mapPortfolio);
   }
@@ -867,6 +869,62 @@ export async function upsertSubscriptionFromWebhook(u: SubscriptionUpsert): Prom
       current_period_end       = EXCLUDED.current_period_end,
       cancel_at_period_end     = EXCLUDED.cancel_at_period_end,
       updated_at               = ${now}`;
+}
+
+/* ========================= account deletion ========================= */
+
+export interface DeletionOutcome {
+  mode: 'deleted' | 'deactivated';
+  blobUrls: string[];   // portfolio + request images the caller should remove from Blob
+}
+
+/**
+ * Delete or soft-deactivate a user's own account.
+ *  - No entanglements (no offers / reviews / messages) → HARD delete (row +
+ *    cascade), and the caller removes the gathered Blob files.
+ *  - Otherwise → SOFT: anonymize personal fields, tombstone the email (frees it
+ *    + blocks login), mark deactivated_at, bump session epoch (revokes
+ *    sessions), delete auth tokens, cancel OPEN requests, remove portfolio +
+ *    its blobs. Transaction records (offers/reviews/messages) are preserved.
+ */
+export async function deactivateAccount(userId: string): Promise<DeletionOutcome> {
+  if (!usePg) {
+    // Blob-fallback mode: best-effort hard delete of the user record only.
+    const users = await readCollection<UserRow>('users');
+    await writeCollection('users', users.filter(u => u.id !== userId));
+    return { mode: 'deleted', blobUrls: [] };
+  }
+
+  const pf = await sql`SELECT image_url FROM portfolio_items WHERE artist_id = ${userId}`;
+  const rq = await sql`SELECT reference_url FROM requests WHERE customer_id = ${userId} AND reference_url IS NOT NULL`;
+  const blobUrls = [...pf.map(r => r.image_url as string), ...rq.map(r => r.reference_url as string)].filter(Boolean);
+
+  const ent = await sql`SELECT
+    (SELECT COUNT(*)::int FROM offers   WHERE artist_id = ${userId} OR customer_id = ${userId}) offers,
+    (SELECT COUNT(*)::int FROM reviews  WHERE artist_id = ${userId} OR customer_id = ${userId}) reviews,
+    (SELECT COUNT(*)::int FROM messages WHERE from_id = ${userId} OR to_id = ${userId})       messages`;
+  const hasRecords = (Number(ent[0].offers) + Number(ent[0].reviews) + Number(ent[0].messages)) > 0;
+
+  if (!hasRecords) {
+    await sql`DELETE FROM users WHERE id = ${userId}`;   // cascades requests/portfolio/tokens/subs
+    return { mode: 'deleted', blobUrls };
+  }
+
+  // Soft path — preserve transaction records, scrub everything personal.
+  const tomb = `deleted+${userId}@deleted.invalid`;
+  await sql`DELETE FROM portfolio_items WHERE artist_id = ${userId}`;
+  await sql`DELETE FROM auth_tokens WHERE user_id = ${userId}`;
+  await sql`UPDATE requests SET status = 'cancelled' WHERE customer_id = ${userId} AND status = 'open'`;
+  await sql`UPDATE users SET
+      name = 'Deleted account',
+      email = ${tomb},
+      bio = NULL, city = NULL, district = NULL, public_address_label = NULL,
+      latitude = NULL, longitude = NULL, is_public_location = FALSE, styles = '{}',
+      provider_status = CASE WHEN provider_status IS NULL THEN NULL ELSE 'suspended' END,
+      deactivated_at = ${Date.now()},
+      session_epoch = session_epoch + 1
+    WHERE id = ${userId}`;
+  return { mode: 'deactivated', blobUrls };
 }
 
 /** Idempotency guard: true the FIRST time an event id is seen, false on repeats. */

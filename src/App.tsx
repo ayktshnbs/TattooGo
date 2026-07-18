@@ -2,9 +2,10 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { LangProvider } from './i18n/LangContext';
 import { AuthProvider } from './auth/AuthContext';
-import { RequireCustomer, RequireArtist } from './auth/Guard';
+import { RequireCustomer, RequireArtist, RequireAuth } from './auth/Guard';
 
 import { Landing } from './pages/Landing';
+import { Account } from './pages/Account';
 import { Moderation } from './pages/Moderation';
 import { HowItWorks, BrowseArtists, ArtistPublicProfile, BrowseDesigns, Categories, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, FAQ, About, Contact, Terms } from './pages/Public';
 import { CustomerHome, CreateRequest, MyRequests, OffersReceived, CustomerMessages, CustomerNotifications, CustomerFavorites, CustomerAppointments, CustomerTracking, CustomerReviews, CustomerProfile } from './pages/customer/Customer';
@@ -18,6 +19,7 @@ function ScrollToTop() {
 
 const C = (el: React.ReactNode) => <RequireCustomer>{el}</RequireCustomer>;
 const A = (el: React.ReactNode) => <RequireArtist>{el}</RequireArtist>;
+const U = (el: React.ReactNode) => <RequireAuth>{el}</RequireAuth>;
 
 export default function App() {
   return (
@@ -43,6 +45,9 @@ export default function App() {
             <Route path="/about" element={<About />} />
             <Route path="/contact" element={<Contact />} />
             <Route path="/terms" element={<Terms />} />
+
+            {/* Account settings — any signed-in user */}
+            <Route path="/account" element={U(<Account />)} />
 
             {/* Customer dashboard — customer role only */}
             <Route path="/dashboard" element={C(<CustomerHome />)} />

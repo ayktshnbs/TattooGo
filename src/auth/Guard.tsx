@@ -31,3 +31,12 @@ export function RequireArtist({ children }: { children: React.ReactNode }) {
   if (!isArtistRole(user.role)) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
+
+/** Any signed-in user (customer or provider). Used by shared pages like /account. */
+export function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const loc = useLocation();
+  if (loading) return <Waiting />;
+  if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
+  return <>{children}</>;
+}

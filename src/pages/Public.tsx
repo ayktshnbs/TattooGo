@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { SectionHeader } from '../components/SectionHeader';
@@ -363,6 +363,8 @@ export function Categories() {
 export function Login() {
   const { lang } = useLang();
   const navigate = useNavigate();
+  const location = useLocation();
+  const intent = intentFromSearch(location.search);
   const { setUser } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -380,7 +382,7 @@ export function Login() {
             try {
               const me = await auth.login(email, password);
               setUser(me);
-              navigate(isArtistRole(me.role) ? '/studio' : '/dashboard');
+              navigate(destForIntent(intent, me.role));
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Login failed');
             } finally {
@@ -393,7 +395,7 @@ export function Login() {
           <Field label={lang === 'tr' ? 'Şifre' : 'Password'}><Input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required /></Field>
           <div className="row gap-3" style={{ marginTop: 12 }}>
             <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? '…' : (lang === 'tr' ? 'Giriş yap' : 'Sign in')}</button>
-            <Link to="/register" className="btn btn-ghost">{lang === 'tr' ? 'Hesap oluştur' : 'Create account'}</Link>
+            <Link to={`/register${location.search}`} className="btn btn-ghost">{lang === 'tr' ? 'Hesap oluştur' : 'Create account'}</Link>
           </div>
           <Link to="/forgot-password" className="mono text-muted" style={{ textDecoration: 'underline' }}>
             {lang === 'tr' ? 'Şifrenizi mi unuttunuz?' : 'Forgot your password?'}
@@ -405,7 +407,7 @@ export function Login() {
             {lang === 'tr' ? 'Dövme yaptırmak ya da yapmak. İkisi de tek hesapla.' : 'Get tattooed, or tattoo. Both with one account.'}
           </p>
           <div className="row gap-3" style={{ marginTop: 12 }}>
-            <Link to="/register" className="btn">{lang === 'tr' ? 'Kayıt ol' : 'Sign up'}</Link>
+            <Link to={`/register${location.search}`} className="btn">{lang === 'tr' ? 'Kayıt ol' : 'Sign up'}</Link>
           </div>
         </div>
       </div>
@@ -413,11 +415,27 @@ export function Login() {
   );
 }
 
+/** Landing/CTA intent → where to send the user after auth, and (for register)
+ *  which role to pre-select. Fixes "Join as artist" defaulting to Customer. */
+function intentFromSearch(search: string): 'create-request' | 'artist' | 'studio' | null {
+  const v = new URLSearchParams(search).get('intent');
+  return v === 'create-request' || v === 'artist' || v === 'studio' ? v : null;
+}
+function destForIntent(intent: string | null, role: string): string {
+  if (intent === 'create-request') return '/dashboard/create-request';
+  if (intent === 'artist' || intent === 'studio') return '/studio';
+  return isArtistRole(role) ? '/studio' : '/dashboard';
+}
+
 export function Register() {
   const { lang } = useLang();
   const navigate = useNavigate();
+  const location = useLocation();
   const { setUser } = useAuth();
-  const [role, setRole] = useState<'customer' | 'artist' | 'studio'>('customer');
+  const intent = intentFromSearch(location.search);
+  const [role, setRole] = useState<'customer' | 'artist' | 'studio'>(
+    intent === 'artist' ? 'artist' : intent === 'studio' ? 'studio' : 'customer',
+  );
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -449,7 +467,7 @@ export function Register() {
               email, password, name, role
             });
             setUser(me);
-            navigate(isArtistRole(me.role) ? '/studio' : '/dashboard');
+            navigate(destForIntent(intent, me.role));
           } catch (err) {
             setError(err instanceof Error ? err.message : 'Registration failed');
           } finally {
@@ -471,7 +489,7 @@ export function Register() {
         </label>
         <div className="row gap-3" style={{ marginTop: 12 }}>
           <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? '…' : (lang === 'tr' ? 'Hesap oluştur' : 'Create account')}</button>
-          <Link to="/login" className="btn btn-ghost">{lang === 'tr' ? 'Zaten hesabım var' : 'I have an account'}</Link>
+          <Link to={`/login${location.search}`} className="btn btn-ghost">{lang === 'tr' ? 'Zaten hesabım var' : 'I have an account'}</Link>
         </div>
       </form>
     </Page>
