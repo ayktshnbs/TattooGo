@@ -49,6 +49,7 @@ const mapUser = (r: Any): UserRow => ({
   providerType: (r.provider_type as UserRow['providerType']) ?? undefined,
   providerStatus: r.provider_status as UserRow['providerStatus'],
   deactivatedAt: r.deactivated_at == null ? undefined : Number(r.deactivated_at),
+  isAdmin: (r.is_admin as boolean | null) ?? false,
 });
 
 const mapRequest = (r: Any): RequestRow & { offerCount?: number } => ({
@@ -236,7 +237,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
                 WHERE p2.artist_id = u.id AND p2.status = 'approved'
                 ORDER BY p2.ts DESC LIMIT 3)) AS preview_images
       FROM users u
-      LEFT JOIN reviews r ON r.artist_id = u.id
+      LEFT JOIN reviews r ON r.artist_id = u.id AND r.hidden_at IS NULL
       LEFT JOIN portfolio_items p ON p.artist_id = u.id AND p.status = 'approved'
       WHERE u.provider_type IN ('artist','studio')
         AND u.provider_status = 'active'
@@ -639,7 +640,8 @@ export async function createMessage(m: MessageRow): Promise<void> {
 /* ============================== reviews ============================== */
 
 export async function listReviewsByArtist(artistId: string): Promise<ReviewRow[]> {
-  if (usePg) return (await sql`SELECT * FROM reviews WHERE artist_id = ${artistId} ORDER BY ts DESC LIMIT 200`).map(mapReview);
+  // Public projection: hidden reviews are excluded from every non-admin view.
+  if (usePg) return (await sql`SELECT * FROM reviews WHERE artist_id = ${artistId} AND hidden_at IS NULL ORDER BY ts DESC LIMIT 200`).map(mapReview);
   return (await readCollection<ReviewRow>('reviews')).filter(r => r.artistId === artistId).sort((a, b) => b.ts - a.ts);
 }
 

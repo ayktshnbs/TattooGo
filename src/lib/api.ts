@@ -50,6 +50,8 @@ export interface Me {
   isPublicLocation?: boolean;
   hasPublicLocation?: boolean;
   providerStatus?: 'active' | 'pending_profile' | 'needs_review' | 'suspended';
+  /** Admin gate. Set only by scripts/bootstrap-admin.mjs; every API write strips it. */
+  isAdmin?: boolean;
   createdAt: string;
 }
 
@@ -86,6 +88,103 @@ export const auth = {
     call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'update-profile', ...input }) }),
   deleteAccount: () =>
     call<{ ok: true; mode: 'deleted' | 'deactivated' }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'delete-account' }) }),
+};
+
+/* ---------- admin (is_admin only) ---------- */
+
+export interface AdminSummary {
+  users_total: number; customers: number;
+  providers_total: number; providers_active: number; providers_pending: number;
+  providers_needs_review: number; providers_suspended: number;
+  deactivated: number; admins: number;
+  requests_open: number; requests_booked: number; requests_completed: number; requests_cancelled: number;
+  offers_total: number; messages_total: number;
+  portfolio_pending: number; portfolio_approved: number;
+  reviews_total: number; reviews_hidden: number;
+}
+
+export interface AdminUser {
+  id: string; email: string; name: string;
+  providerType: 'artist' | 'studio' | null;
+  providerStatus: 'active' | 'pending_profile' | 'needs_review' | 'suspended' | null;
+  deactivatedAt: number | null;
+  isAdmin: boolean;
+  city: string | null; district: string | null;
+  createdAt: string;
+  requestCount: number; offerCount: number; portfolioCount: number; reviewCount: number;
+}
+
+export interface AdminPortfolioItem {
+  id: string; artistId: string; artistName: string; title: string; style: string;
+  imageUrl: string; imageRatio: number; status: 'pending' | 'approved';
+  createdAt: string; ts: number;
+  ownerProviderType: string | null;
+  ownerProviderStatus: string | null;
+  ownerDeactivated: boolean;
+}
+
+export interface AdminRequest {
+  id: string; title: string; style: string;
+  city: string | null; district: string | null;
+  budgetMin: number | null; budgetMax: number | null;
+  referenceUrl: string | null;
+  status: 'open' | 'booked' | 'completed' | 'cancelled';
+  createdAt: string;
+  customerId: string; customerName: string;
+  offerCount: number;
+}
+
+export interface AdminOffer {
+  id: string; requestId: string;
+  artistId: string; artistName: string;
+  customerId: string; customerName: string;
+  price: number; status: string; createdAt: string; ts: number;
+}
+
+export interface AdminReview {
+  id: string; artistId: string; customerId: string; customerName: string;
+  rating: number; text: string; requestTitle: string;
+  createdAt: string; ts: number;
+  hiddenAt: number | null; hiddenBy: string | null;
+}
+
+export interface AdminAuditEntry {
+  id: string; adminUserId: string; action: string;
+  targetType: string | null; targetId: string | null;
+  previousValue: string | null; newValue: string | null;
+  createdAt: number;
+}
+
+export type AdminUserFilter = 'all' | 'customers' | 'providers' | 'active' | 'pending_profile' | 'needs_review' | 'suspended' | 'deactivated' | 'admins';
+
+export const admin = {
+  summary: () => call<AdminSummary>('/api/admin?action=summary'),
+  listUsers: (filter: AdminUserFilter = 'all', q?: string) => {
+    const p = new URLSearchParams({ action: 'list-users', filter });
+    if (q) p.set('q', q);
+    return call<AdminUser[]>('/api/admin?' + p.toString());
+  },
+  userDetail: (id: string) => call<AdminUser>('/api/admin?action=user-detail&id=' + encodeURIComponent(id)),
+  setProviderStatus: (id: string, status: 'active' | 'needs_review' | 'suspended') =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'set-provider-status', id, status }) }),
+  deactivateUser: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'deactivate-user', id }) }),
+  reactivateUser: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'reactivate-user', id }) }),
+  listPortfolio: (status: 'pending' | 'approved' | 'all' = 'pending') =>
+    call<AdminPortfolioItem[]>('/api/admin?action=list-portfolio&status=' + status),
+  approvePortfolio: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'approve-portfolio', id }) }),
+  rejectPortfolio: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'reject-portfolio', id }) }),
+  listRequests: () => call<AdminRequest[]>('/api/admin?action=list-requests'),
+  listOffers: () => call<AdminOffer[]>('/api/admin?action=list-offers'),
+  listReviews: () => call<AdminReview[]>('/api/admin?action=list-reviews'),
+  hideReview: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'hide-review', id }) }),
+  unhideReview: (id: string) =>
+    call<{ ok: true }>('/api/admin', { method: 'POST', body: JSON.stringify({ action: 'unhide-review', id }) }),
+  auditLog: (limit = 100) => call<AdminAuditEntry[]>('/api/admin?action=audit-log&limit=' + limit),
 };
 
 /* ---------- premium billing (artist/studio) ---------- */

@@ -42,6 +42,9 @@ export interface UserRow {
   providerType?: 'artist' | 'studio';
   providerStatus?: 'active' | 'pending_profile' | 'needs_review' | 'suspended';
   deactivatedAt?: number;  // ms epoch; set on soft-delete. Blocks login, hidden everywhere public.
+  /** Admin gate. Granted ONLY by scripts/bootstrap-admin.mjs; every API write
+   *  path strips this so a client can never flip it. */
+  isAdmin?: boolean;
 }
 
 export interface TokenRow {

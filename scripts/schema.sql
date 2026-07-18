@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS users (
   -- cannot change it once set); provider_status applies only when set.
   provider_type  TEXT CHECK (provider_type IN ('artist','studio')),
   provider_status TEXT,                         -- 'active' | 'pending_profile' | 'needs_review' | 'suspended' (providers only)
-  deactivated_at BIGINT                         -- ms epoch when the account was soft-deleted; excluded everywhere public, cannot log in
+  deactivated_at BIGINT,                        -- ms epoch when the account was soft-deleted; excluded everywhere public, cannot log in
+  -- Admin gate. Granted ONLY by scripts/bootstrap-admin.mjs; NEVER writable by
+  -- any API path (register / update-profile / create-provider / delete strip it).
+  is_admin       BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX IF NOT EXISTS users_provider_idx ON users(provider_type, provider_status, city, district);
 
@@ -111,7 +114,9 @@ CREATE TABLE IF NOT EXISTS reviews (
   rating        INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
   text          TEXT NOT NULL,
   created_at    TEXT NOT NULL,
-  ts            BIGINT NOT NULL
+  ts            BIGINT NOT NULL,
+  hidden_at     BIGINT,          -- soft-hide by admin; public queries exclude hidden_at IS NOT NULL
+  hidden_by     TEXT             -- admin user id (audit ref)
 );
 CREATE INDEX IF NOT EXISTS reviews_artist_idx ON reviews(artist_id, ts DESC);
 
@@ -142,6 +147,22 @@ CREATE TABLE IF NOT EXISTS notifications (
   ts         BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, ts DESC);
+
+-- Every mutating admin action lands here. Written only by admin endpoints;
+-- previous/new_value hold small JSON snippets (never secrets / never full bodies).
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id             TEXT PRIMARY KEY,
+  admin_user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+  action         TEXT NOT NULL,
+  target_type    TEXT,
+  target_id      TEXT,
+  previous_value TEXT,
+  new_value      TEXT,
+  created_at     BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS admin_audit_log_admin_idx  ON admin_audit_log(admin_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS admin_audit_log_target_idx ON admin_audit_log(target_type, target_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS admin_audit_log_recent_idx ON admin_audit_log(created_at DESC);
 
 -- Premium subscriptions (artist/studio). Written ONLY by the verified Creem
 -- webhook; read by the offer gate when PREMIUM_REQUIRED=true. No card data —

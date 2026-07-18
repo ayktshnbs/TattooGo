@@ -131,5 +131,19 @@ export function ownUser(u: UserRow) {
     isPublicLocation: u.isPublicLocation ?? false,
     providerType: u.providerType ?? null,
     providerStatus: u.providerStatus,
+    isAdmin: u.isAdmin ?? false,
   };
+}
+
+/**
+ * Admin guard used by every /api/admin call. Returns null when authorised, or
+ * writes the 401/403 and returns the sentinel string. Deactivated sessions
+ * already resolve null in getSessionUser, so a soft-deleted admin can't slip
+ * through. Server-side is the only authority — the UI hint is convenience.
+ */
+export async function requireAdmin(req: VercelRequest, res: VercelResponse): Promise<UserRow | null> {
+  const user = await getSessionUser(req);
+  if (!user) { res.status(401).json({ error: 'sign in required' }); return null; }
+  if (!user.isAdmin) { res.status(403).json({ error: 'forbidden' }); return null; }
+  return user;
 }

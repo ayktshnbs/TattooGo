@@ -1,9 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { del, put } from '@vercel/blob';
+import { put } from '@vercel/blob';
 import { getSessionUser } from './_lib/auth.js';
 import {
-  listApprovedPortfolio, listPortfolioByArtist, listPendingPortfolio,
-  createPortfolioItem, moderatePortfolio, countRecentPortfolioByArtist, countPendingPortfolio,
+  listApprovedPortfolio, listPortfolioByArtist,
+  createPortfolioItem, countRecentPortfolioByArtist, countPendingPortfolio,
   type PortfolioItem,
 } from './_lib/repo.js';
 import { isValidStyle } from './_lib/styles.js';
@@ -14,29 +14,23 @@ import { isValidStyle } from './_lib/styles.js';
  * Records live in the repo (Postgres `portfolio_items` when DATABASE_URL is
  * set); ONLY the image files live in Vercel Blob.
  *
- * GET   /api/uploads                 → approved feed (public)
- * GET   /api/uploads?mine=1          → the signed-in artist's own items
- * GET   /api/uploads?status=pending  → moderation queue (admin token only)
- * POST  /api/uploads                 → artist publishes; pending until approved
- * PATCH /api/uploads {id, action}    → approve | reject (admin token; reject
- *                                      also deletes the image blob)
+ * GET   /api/uploads          → approved feed (public)
+ * GET   /api/uploads?mine=1   → the signed-in artist's own items
+ * POST  /api/uploads          → artist publishes; pending until approved
+ *
+ * Moderation moved to /api/admin (session-based admin auth): the old shared
+ * ADMIN_TOKEN + PATCH here have been removed. Approve/reject now goes through
+ * POST /api/admin {action:'approve-portfolio'|'reject-portfolio', id} and is
+ * audit-logged.
  */
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PER_ARTIST_PER_DAY = 10;
 const MAX_PENDING_QUEUE = 50;
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
-const isAdmin = (req: VercelRequest) => ADMIN_TOKEN.length > 0 && req.headers['x-admin-token'] === ADMIN_TOKEN;
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method === 'GET') {
-      if (req.query.status === 'pending') {
-        if (!isAdmin(req)) return res.status(401).json({ error: 'admin token required' });
-        res.setHeader('Cache-Control', 'no-store');
-        return res.status(200).json(await listPendingPortfolio());
-      }
       if (req.query.mine === '1') {
         const user = await getSessionUser(req);
         if (!user || !user.providerType) {
@@ -98,21 +92,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(202).json(item);
     }
 
-    if (req.method === 'PATCH') {
-      if (!isAdmin(req)) return res.status(401).json({ error: 'admin token required' });
-      const { id, action } = req.body ?? {};
-      if (typeof id !== 'string' || (action !== 'approve' && action !== 'reject')) {
-        return res.status(400).json({ error: 'id and action (approve|reject) required' });
-      }
-      const outcome = await moderatePortfolio(id, action);
-      if (!outcome.ok) return res.status(404).json({ error: 'not found' });
-      if (outcome.imageUrl) {
-        try { await del(outcome.imageUrl); } catch { /* orphaned blob is harmless */ }
-      }
-      return res.status(200).json({ ok: true, id, action });
-    }
-
-    res.setHeader('Allow', 'GET, POST, PATCH');
+    res.setHeader('Allow', 'GET, POST');
     return res.status(405).json({ error: 'method not allowed' });
   } catch (err) {
     console.error('uploads api error', err);

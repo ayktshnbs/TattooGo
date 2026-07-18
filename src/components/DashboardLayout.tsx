@@ -180,6 +180,12 @@ function AccountMenu() {
               </>
             )}
             <MenuLink to="/account" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Hesap ayarları' : 'Account settings'} />
+            {user?.isAdmin && (
+              <>
+                <div className="hr" />
+                <MenuLink to="/admin" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Yönetici paneli' : 'Admin panel'} />
+              </>
+            )}
             <div className="hr" />
             <button className="mono" onClick={doLogout} style={{ textAlign: 'left', padding: '10px', fontSize: 12, letterSpacing: '0.1em' }}>
               {lang === 'tr' ? 'Çıkış yap' : 'Log out'}

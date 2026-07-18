@@ -45,3 +45,14 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
   return <>{children}</>;
 }
+
+/** Admin-only. Anonymous → /login. Signed-in non-admin → landing (server also
+ *  refuses every /api/admin call with 403). UI hint only; auth is server-side. */
+export function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const loc = useLocation();
+  if (loading) return <Waiting />;
+  if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
+  if (!user.isAdmin) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}

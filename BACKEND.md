@@ -333,6 +333,41 @@ through login/register; artist/studio intents land on `/studio`, where users
 without a provider profile see the inline create-provider onboarding (no
 modal) and existing providers land on their dashboard.
 
+## Admin panel (MVP)
+
+Session-based admin at `/admin`, protected by **`users.is_admin`** — a nullable
+boolean granted **only** by `scripts/bootstrap-admin.mjs` (reads `ADMIN_EMAIL`
+from env, refuses to run if the target doesn't exist). No API path writes
+`is_admin`: register, update-profile, create-provider, and delete-account all
+list explicit column sets, so a client can never flip it.
+
+`requireAdmin` (in `api/_lib/auth.ts`) gates every `/api/admin` call:
+anonymous → **401**, signed-in non-admin → **403**, deactivated → session
+resolves null → 401. The frontend `RequireAdmin` guard hides the pages from
+non-admins but is convenience — the DB is authority.
+
+Actions dispatched via `POST/GET /api/admin {action, …}`: summary,
+list-users (filter+search), user-detail, list-portfolio, approve-portfolio,
+reject-portfolio (deletes the blob), list-requests, list-offers, list-reviews,
+hide-review, unhide-review, set-provider-status, deactivate-user,
+reactivate-user, audit-log. Every mutating action writes an
+`admin_audit_log` row (admin id, action, target, small prev/new JSON — capped
+at 500 chars, never a full body or secret).
+
+Public surface consistency: hidden reviews are excluded from
+`listReviewsByArtist` and from the AVG in the directory's rating aggregate
+(join clause `AND r.hidden_at IS NULL`). Suspended/deactivated providers were
+already excluded (Phases 1 & 2).
+
+**Portfolio moderation moved** from the shared `ADMIN_TOKEN` +
+`/moderation` page to admin-session at `/admin/portfolio`. `ADMIN_TOKEN`,
+`api/uploads.ts` PATCH, and `src/pages/Moderation.tsx` are removed; the env
+var can be deleted from Vercel.
+
+Nothing here exposes password hashes, salts, session secrets, verification
+tokens, reset tokens, API keys, or private message bodies — the messages
+count in the summary is a scalar only.
+
 ## Account deletion / deactivation
 
 `POST /api/auth {action:'delete-account'}` — **self-only** (acts on the session

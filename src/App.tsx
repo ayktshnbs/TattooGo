@@ -2,11 +2,14 @@ import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
 import { LangProvider } from './i18n/LangContext';
 import { AuthProvider } from './auth/AuthContext';
-import { RequireCustomer, RequireArtist, RequireAuth } from './auth/Guard';
+import { RequireCustomer, RequireArtist, RequireAuth, RequireAdmin } from './auth/Guard';
 
 import { Landing } from './pages/Landing';
 import { Account } from './pages/Account';
-import { Moderation } from './pages/Moderation';
+import {
+  AdminSummaryPage, AdminUsersPage, AdminPortfolioPage,
+  AdminRequestsPage, AdminOffersPage, AdminReviewsPage, AdminAuditLogPage,
+} from './pages/admin/Admin';
 import { HowItWorks, BrowseArtists, ArtistPublicProfile, BrowseDesigns, Categories, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, FAQ, About, Contact, Terms } from './pages/Public';
 import { CustomerHome, CreateRequest, MyRequests, OffersReceived, CustomerMessages, CustomerNotifications, CustomerFavorites, CustomerAppointments, CustomerTracking, CustomerReviews, CustomerProfile } from './pages/customer/Customer';
 import { StudioHome, MyTattoos, AddTattoo, GiveOffer, MyOffers, StudioTracking, StudioCalendar, StudioCampaigns, StudioArtists, StudioMaterials, StudioReviews, StudioMessages, StudioNotifications, StudioStats, StudioProfile } from './pages/studio/Studio';
@@ -20,6 +23,7 @@ function ScrollToTop() {
 const C = (el: React.ReactNode) => <RequireCustomer>{el}</RequireCustomer>;
 const A = (el: React.ReactNode) => <RequireArtist>{el}</RequireArtist>;
 const U = (el: React.ReactNode) => <RequireAuth>{el}</RequireAuth>;
+const AD = (el: React.ReactNode) => <RequireAdmin>{el}</RequireAdmin>;
 
 export default function App() {
   return (
@@ -29,7 +33,6 @@ export default function App() {
           <ScrollToTop />
           <Routes>
             <Route path="/" element={<Landing />} />
-            <Route path="/moderation" element={<Moderation />} />
 
             <Route path="/how-it-works" element={<HowItWorks />} />
             <Route path="/artists" element={<BrowseArtists />} />
@@ -48,6 +51,15 @@ export default function App() {
 
             {/* Account settings — any signed-in user */}
             <Route path="/account" element={U(<Account />)} />
+
+            {/* Admin panel — server-side is_admin gate on every /api/admin call */}
+            <Route path="/admin"            element={AD(<AdminSummaryPage />)} />
+            <Route path="/admin/users"      element={AD(<AdminUsersPage />)} />
+            <Route path="/admin/portfolio"  element={AD(<AdminPortfolioPage />)} />
+            <Route path="/admin/requests"   element={AD(<AdminRequestsPage />)} />
+            <Route path="/admin/offers"     element={AD(<AdminOffersPage />)} />
+            <Route path="/admin/reviews"    element={AD(<AdminReviewsPage />)} />
+            <Route path="/admin/audit-log"  element={AD(<AdminAuditLogPage />)} />
 
             {/* Customer dashboard — customer role only */}
             <Route path="/dashboard" element={C(<CustomerHome />)} />
