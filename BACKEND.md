@@ -304,6 +304,35 @@ Creem's current docs** — the parser is defensive and that one file is the only
 place to adjust. Runs in **test mode** (`CREEM_API_BASE` = test host) until the
 live host + `PREMIUM_REQUIRED=true` are set (both deliberate, separate switches).
 
+## One-account / multi-mode (Phase 2)
+
+Every account is a **base (customer) account**: registration collects only
+name/email/password (no role choice), and any signed-in user can create
+requests, receive offers, accept/reject, message, complete, review, and use
+`/account`. The legacy `role` column is vestigial ('customer' for new users).
+
+**Optional provider profile** — `users.provider_type` (nullable,
+`artist`|`studio`), created via `POST /api/auth {action:'create-provider',
+providerType}`: 401 anonymous · 400 invalid type · **409 if a provider profile
+already exists** (one per account, EVER — enforced by the SQL `WHERE
+provider_type IS NULL`; changing type is support-only). It starts
+`provider_status='pending_profile'` and activates through the existing
+profile-completion rules. Base accounts have `provider_status = NULL`.
+
+**Gating** keys off `provider_type` (never role): request board
+(`GET /api/requests?board=1`), sent offers (`GET /api/offers?sent=1`),
+received reviews (`GET /api/reviews?received=1`), provider stats
+(`GET /api/dashboard?mode=provider`), portfolio upload, billing. The
+parameterless variants of those endpoints return the CUSTOMER view for every
+user, so one account uses both modes. Public surfaces (directory, map,
+profile, feed) require `provider_type IS NOT NULL AND provider_status='active'
+AND deactivated_at IS NULL` — customer-only accounts can never appear.
+
+**Landing intents** (`/register?intent=create-request|artist|studio`) carry
+through login/register; artist/studio intents land on `/studio`, where users
+without a provider profile see the inline create-provider onboarding (no
+modal) and existing providers land on their dashboard.
+
 ## Account deletion / deactivation
 
 `POST /api/auth {action:'delete-account'}` — **self-only** (acts on the session

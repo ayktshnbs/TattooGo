@@ -32,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const id = req.query.id;
     if (typeof id === 'string') {
       const user = await getUserById(id);
-      if (!user || (user.role !== 'artist' && user.role !== 'studio') || user.providerStatus !== 'active' || user.deactivatedAt) {
+      if (!user || !user.providerType || user.providerStatus !== 'active' || user.deactivatedAt) {
         return res.status(404).json({ error: 'artist not found' });
       }
       const [portfolio, reviews, completedJobs] = await Promise.all([

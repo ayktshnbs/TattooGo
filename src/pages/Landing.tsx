@@ -6,7 +6,7 @@ import { StarField } from '../components/StarField';
 import { Icon } from '../components/Icon';
 import { getUploads, fetchUploads, UPLOADS_EVENT } from '../data/uploads';
 import { useLang } from '../i18n/LangContext';
-import { useAuth, isArtistRole } from '../auth/AuthContext';
+import { useAuth } from '../auth/AuthContext';
 import { useReveal } from '../hooks/useReveal';
 
 const FEED_BATCH = 8;
@@ -77,7 +77,7 @@ export function Landing() {
           </p>
           <div className="row gap-3 wrap" style={{ justifyContent: 'center', marginTop: 8 }}>
             <Link to={user ? '/dashboard/create-request' : '/register?intent=create-request'} className="btn" style={{ background: '#F5F2EB', color: '#000', borderColor: '#F5F2EB' }}>{t('cta.createRequest')}<span className="dot" /></Link>
-            <Link to={user ? (isArtistRole(user.role) ? '/studio' : '/register?intent=artist') : '/register?intent=artist'} className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
+            <Link to={user ? '/studio?intent=artist' : '/register?intent=artist'} className="btn btn-glass">{t('cta.joinAsArtist')}</Link>
           </div>
         </div>
       </section>
@@ -118,7 +118,7 @@ export function Landing() {
                   ? 'Onaylı sanatçılar çalışmalarını yükledikçe akış burada canlanacak.'
                   : 'As verified artists publish their work, the feed comes alive here.'}
               </p>
-              <Link to={user ? (isArtistRole(user.role) ? '/studio' : '/register?intent=artist') : '/register?intent=artist'} className="btn btn-sm btn-accent" style={{ marginTop: 8 }}>{t('cta.joinAsArtist')}</Link>
+              <Link to={user ? '/studio?intent=artist' : '/register?intent=artist'} className="btn btn-sm btn-accent" style={{ marginTop: 8 }}>{t('cta.joinAsArtist')}</Link>
             </div>
           ) : (
             <div className="pin-feed">

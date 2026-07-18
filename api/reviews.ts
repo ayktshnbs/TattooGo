@@ -18,16 +18,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       const user = await getSessionUser(req);
       if (!user) return res.status(401).json({ error: 'sign in required' });
-      const mine = user.role === 'customer'
-        ? await listReviewsByCustomer(user.id)
-        : await listReviewsByArtist(user.id);
-      return res.status(200).json(mine);
+      // ?received=1 → reviews about my provider profile; default → reviews I
+      // wrote as a customer. One account can use both views (multi-mode).
+      if (req.query.received === '1') {
+        if (!user.providerType) return res.status(403).json({ error: 'provider profile required' });
+        return res.status(200).json(await listReviewsByArtist(user.id));
+      }
+      return res.status(200).json(await listReviewsByCustomer(user.id));
     }
 
     if (req.method === 'POST') {
       const user = await getSessionUser(req);
       if (!user) return res.status(401).json({ error: 'sign in required' });
-      if (user.role !== 'customer') return res.status(403).json({ error: 'only customers can leave reviews' });
+      // Any signed-in user reviews as a customer; createReview enforces that
+      // the offer belongs to them and is completed (one review per offer).
 
       const { offerId, rating, text } = req.body ?? {};
       if (typeof offerId !== 'string') return res.status(400).json({ error: 'offerId required' });

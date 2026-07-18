@@ -46,6 +46,7 @@ const mapUser = (r: Any): UserRow => ({
   failedLogins: r.failed_logins as number,
   lockUntil: r.lock_until == null ? undefined : Number(r.lock_until),
   createdAt: r.created_at as string,
+  providerType: (r.provider_type as UserRow['providerType']) ?? undefined,
   providerStatus: r.provider_status as UserRow['providerStatus'],
   deactivatedAt: r.deactivated_at == null ? undefined : Number(r.deactivated_at),
 });
@@ -123,8 +124,8 @@ export async function getUserById(id: string): Promise<UserRow | null> {
 export async function createUser(u: UserRow): Promise<UserRow | null> {
   if (usePg) {
     try {
-      await sql`INSERT INTO users (id, email, name, role, city, bio, styles, pass_hash, salt, email_verified, session_epoch, failed_logins, created_at, provider_status)
-        VALUES (${u.id}, ${u.email}, ${u.name}, ${u.role}, ${u.city ?? null}, ${u.bio ?? null}, ${u.styles ?? []}, ${u.passHash}, ${u.salt}, FALSE, 0, 0, ${u.createdAt}, ${u.providerStatus ?? null})`;
+      await sql`INSERT INTO users (id, email, name, role, city, bio, styles, pass_hash, salt, email_verified, session_epoch, failed_logins, created_at, provider_type, provider_status)
+        VALUES (${u.id}, ${u.email}, ${u.name}, ${u.role}, ${u.city ?? null}, ${u.bio ?? null}, ${u.styles ?? []}, ${u.passHash}, ${u.salt}, FALSE, 0, 0, ${u.createdAt}, ${u.providerType ?? null}, ${u.providerStatus ?? null})`;
       return u;
     } catch (err) {
       if (err instanceof Error && /unique|duplicate/i.test(err.message)) return null;
@@ -226,7 +227,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
 
   if (usePg) {
     const rows = await sql`
-      SELECT u.id, u.name, u.role, u.city, u.district, u.styles, u.bio, u.created_at,
+      SELECT u.id, u.name, u.provider_type, u.city, u.district, u.styles, u.bio, u.created_at,
              u.is_public_location, u.latitude, u.longitude, u.public_address_label,
              ROUND(AVG(r.rating)::numeric, 1) AS rating, COUNT(DISTINCT r.id)::int AS review_count,
              COUNT(DISTINCT p.id)::int AS portfolio_count,
@@ -237,7 +238,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
       FROM users u
       LEFT JOIN reviews r ON r.artist_id = u.id
       LEFT JOIN portfolio_items p ON p.artist_id = u.id AND p.status = 'approved'
-      WHERE u.role IN ('artist','studio')
+      WHERE u.provider_type IN ('artist','studio')
         AND u.provider_status = 'active'
         AND u.deactivated_at IS NULL
         AND (${city}::text IS NULL OR u.city = ${city})
@@ -250,7 +251,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
     return rows.map(r => {
       const isPublic = (r.is_public_location as boolean) ?? false;
       return {
-        id: r.id as string, name: r.name as string, role: r.role as string,
+        id: r.id as string, name: r.name as string, role: r.provider_type as string,
         city: r.city as string ?? undefined, district: r.district as string ?? undefined,
         styles: (r.styles as string[]) ?? [], bio: r.bio as string ?? undefined,
         createdAt: r.created_at as string,
@@ -270,7 +271,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
   const reviews = await readCollection<ReviewRow>('reviews');
   const feed = await readFeedIndex<FeedEntryLegacy>();
   return users
-    .filter(u => (u.role === 'artist' || u.role === 'studio') && u.providerStatus === 'active' && u.deactivatedAt == null)
+    .filter(u => u.providerType != null && u.providerStatus === 'active' && u.deactivatedAt == null)
     .filter(u => !city || u.city === city)
     .filter(u => !district || u.district === district)
     .filter(u => !q || u.name.toLowerCase().includes(q.replace(/%/g, '')))
@@ -280,7 +281,7 @@ export async function listArtistsPublic(filters: ArtistFilters = {}): Promise<Pu
       const approved = feed.filter(e => e.artistId === u.id && e.status !== 'pending');
       const isPublic = (u.isPublicLocation ?? false) && u.latitude != null && u.longitude != null;
       return {
-        id: u.id, name: u.name, role: u.role, city: u.city, district: u.district, styles: u.styles, bio: u.bio,
+        id: u.id, name: u.name, role: u.providerType as string, city: u.city, district: u.district, styles: u.styles, bio: u.bio,
         createdAt: u.createdAt,
         rating: mine.length ? Math.round((mine.reduce((s, r) => s + r.rating, 0) / mine.length) * 10) / 10 : null,
         reviewCount: mine.length,
@@ -339,6 +340,27 @@ export async function updateProfile(userId: string, p: ProfileUpdate): Promise<v
   if (p.isPublicLocation !== undefined) u.isPublicLocation = p.isPublicLocation;
   if (p.providerStatus !== undefined) u.providerStatus = p.providerStatus;
   await writeCollection('users', users);
+}
+
+/** Create the user's provider profile (one per account, EVER — the WHERE
+ *  clause rejects the write if provider_type is already set, so a second type
+ *  can never be created and the user cannot change it themselves).
+ *  @returns false when a provider profile already exists. */
+export async function setProviderType(userId: string, type: 'artist' | 'studio'): Promise<boolean> {
+  if (usePg) {
+    const rows = await sql`UPDATE users
+      SET provider_type = ${type}, provider_status = 'pending_profile'
+      WHERE id = ${userId} AND provider_type IS NULL
+      RETURNING id`;
+    return rows.length === 1;
+  }
+  const users = await readCollection<UserRow>('users');
+  const u = users.find(x => x.id === userId);
+  if (!u || u.providerType) return false;
+  u.providerType = type;
+  u.providerStatus = 'pending_profile';
+  await writeCollection('users', users);
+  return true;
 }
 
 /* ============================ auth tokens ============================ */
@@ -674,7 +696,8 @@ export async function listApprovedPortfolio(): Promise<PortfolioItem[]> {
     const rows = await sql`
       SELECT p.* FROM portfolio_items p
       JOIN users u ON u.id = p.artist_id
-      WHERE p.status = 'approved' AND u.provider_status = 'active' AND u.deactivated_at IS NULL
+      WHERE p.status = 'approved' AND u.provider_type IS NOT NULL
+        AND u.provider_status = 'active' AND u.deactivated_at IS NULL
       ORDER BY p.ts DESC LIMIT 200`;
     return rows.map(mapPortfolio);
   }
@@ -699,7 +722,8 @@ export async function listApprovedPortfolioByArtist(artistId: string): Promise<P
     const rows = await sql`
       SELECT p.* FROM portfolio_items p
       JOIN users u ON u.id = p.artist_id
-      WHERE p.artist_id = ${artistId} AND p.status = 'approved' AND u.provider_status = 'active'
+      WHERE p.artist_id = ${artistId} AND p.status = 'approved'
+        AND u.provider_type IS NOT NULL AND u.provider_status = 'active'
       ORDER BY p.ts DESC LIMIT 200`;
     return rows.map(mapPortfolio);
   }

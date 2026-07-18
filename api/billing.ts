@@ -17,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
-    if (user.role !== 'artist' && user.role !== 'studio') {
+    if (!user.providerType) {
       return res.status(403).json({ error: 'premium is for artists and studios' });
     }
 

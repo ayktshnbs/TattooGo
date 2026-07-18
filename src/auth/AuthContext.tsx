@@ -49,7 +49,3 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth() {
   return useContext(Ctx);
 }
-
-export function isArtistRole(role?: string): boolean {
-  return role === 'artist' || role === 'studio';
-}

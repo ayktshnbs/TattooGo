@@ -7,7 +7,7 @@ import { Field, Input, Select, Textarea, ChoiceGroup } from '../components/Form'
 import { Empty, Loading } from '../components/Empty';
 import { STYLES, CITIES, styleLabel } from '../data/mock';
 import { auth, artists as artistsApi, type ApiArtist, type ApiArtistProfile, type ApiPortfolioItem } from '../lib/api';
-import { useAuth, isArtistRole } from '../auth/AuthContext';
+import { useAuth } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
 import { AvatarBubble } from '../components/Visual';
@@ -382,7 +382,7 @@ export function Login() {
             try {
               const me = await auth.login(email, password);
               setUser(me);
-              navigate(destForIntent(intent, me.role));
+              navigate(destForIntent(intent, me));
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Login failed');
             } finally {
@@ -415,16 +415,18 @@ export function Login() {
   );
 }
 
-/** Landing/CTA intent → where to send the user after auth, and (for register)
- *  which role to pre-select. Fixes "Join as artist" defaulting to Customer. */
+/** Landing/CTA intent → where to continue after auth. One-account/multi-mode:
+ *  registration never asks for a role; artist/studio intents continue to the
+ *  provider onboarding inside /studio (which routes existing providers to
+ *  their dashboard automatically). */
 function intentFromSearch(search: string): 'create-request' | 'artist' | 'studio' | null {
   const v = new URLSearchParams(search).get('intent');
   return v === 'create-request' || v === 'artist' || v === 'studio' ? v : null;
 }
-function destForIntent(intent: string | null, role: string): string {
+function destForIntent(intent: string | null, me: { providerType?: 'artist' | 'studio' | null }): string {
   if (intent === 'create-request') return '/dashboard/create-request';
-  if (intent === 'artist' || intent === 'studio') return '/studio';
-  return isArtistRole(role) ? '/studio' : '/dashboard';
+  if (intent === 'artist' || intent === 'studio') return `/studio?intent=${intent}`;
+  return me.providerType ? '/studio' : '/dashboard';
 }
 
 export function Register() {
@@ -433,9 +435,6 @@ export function Register() {
   const location = useLocation();
   const { setUser } = useAuth();
   const intent = intentFromSearch(location.search);
-  const [role, setRole] = useState<'customer' | 'artist' | 'studio'>(
-    intent === 'artist' ? 'artist' : intent === 'studio' ? 'studio' : 'customer',
-  );
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -444,17 +443,13 @@ export function Register() {
   const [busy, setBusy] = useState(false);
   return (
     <Page num="06" eyebrow={lang === 'tr' ? 'Kayıt' : 'Sign up'} title={lang === 'tr' ? 'Hesap' : 'Create'} italic={lang === 'tr' ? 'oluştur.' : 'your account.'}>
-      <div className="row gap-2 wrap" style={{ marginBottom: 32 }}>
-        <ChoiceGroup
-          value={role}
-          onChange={(v) => setRole(v)}
-          options={[
-            { value: 'customer', label: lang === 'tr' ? 'Müşteri' : 'Customer' },
-            { value: 'artist',   label: lang === 'tr' ? 'Sanatçı' : 'Artist' },
-            { value: 'studio',   label: lang === 'tr' ? 'Stüdyo'  : 'Studio' },
-          ]}
-        />
-      </div>
+      {(intent === 'artist' || intent === 'studio') && (
+        <p className="mono text-muted" style={{ marginBottom: 28, fontSize: 12 }}>
+          {intent === 'artist'
+            ? (lang === 'tr' ? 'Kayıttan sonra sanatçı profilinizi oluşturacaksınız.' : 'After signing up you will create your artist profile.')
+            : (lang === 'tr' ? 'Kayıttan sonra stüdyo profilinizi oluşturacaksınız.' : 'After signing up you will create your studio profile.')}
+        </p>
+      )}
       <form
         className="col gap-4"
         style={{ maxWidth: 580 }}
@@ -463,11 +458,9 @@ export function Register() {
           if (!agreed) { setError(lang === 'tr' ? 'Şartları onaylamanız gerekiyor.' : 'Please accept the Terms.'); return; }
           setBusy(true); setError('');
           try {
-            const me = await auth.register({
-              email, password, name, role
-            });
+            const me = await auth.register({ email, password, name });
             setUser(me);
-            navigate(destForIntent(intent, me.role));
+            navigate(destForIntent(intent, me));
           } catch (err) {
             setError(err instanceof Error ? err.message : 'Registration failed');
           } finally {
@@ -476,7 +469,7 @@ export function Register() {
         }}
       >
         {error && <span className="mono" style={{ color: 'var(--ink)' }}>⚠ {error}</span>}
-        <Field label={lang === 'tr' ? (role === 'studio' ? 'Stüdyo adı' : 'Adınız') : (role === 'studio' ? 'Studio name' : 'Full name')}>
+        <Field label={lang === 'tr' ? 'Adınız' : 'Full name'}>
           <Input value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
         <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>

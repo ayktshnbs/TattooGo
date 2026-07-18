@@ -53,7 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       // Post-write side effects — best-effort.
       await pushNotification(peer.id, 'message', user.name, row.text.slice(0, 120));
-      await newMessageEmail(peer.email, peer.name, user.name, row.text, peer.role === 'artist' || peer.role === 'studio');
+      await newMessageEmail(peer.email, peer.name, user.name, row.text, peer.providerType != null);
 
       return res.status(201).json(row);
     }

@@ -17,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
     res.setHeader('Cache-Control', 'no-store');
-    return res.status(200).json(await listNotifications(user.id, user.role));
+    return res.status(200).json(await listNotifications(user.id, user.providerType ?? 'customer'));
   } catch (err) {
     console.error('notifications api error', err);
     return res.status(500).json({ error: 'internal error' });

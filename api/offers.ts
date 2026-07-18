@@ -23,11 +23,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
-    const isArtist = user.role === 'artist' || user.role === 'studio';
+    // Multi-mode: provider actions key off the provider profile, not role.
+    const isArtist = !!user.providerType;
 
     if (req.method === 'GET') {
-      const mine = isArtist ? await listOffersByArtist(user.id) : await listOffersByCustomer(user.id);
-      return res.status(200).json(mine);
+      // ?sent=1 → provider view (offers I sent); default → offers on my requests.
+      // One account can use both views (multi-mode).
+      if (req.query.sent === '1') {
+        if (!isArtist) return res.status(403).json({ error: 'provider profile required' });
+        return res.status(200).json(await listOffersByArtist(user.id));
+      }
+      return res.status(200).json(await listOffersByCustomer(user.id));
     }
 
     if (req.method === 'POST') {

@@ -121,7 +121,7 @@ export function StudioHome() {
   useReveal();
   const { lang, t } = useLang();
   const { user } = useAuth();
-  const { data, error } = useLoad(() => dashboard.get() as Promise<ArtistDashboard>);
+  const { data, error } = useLoad(() => dashboard.get('provider') as Promise<ArtistDashboard>);
   return (
     <DashboardLayout
       scope="studio"
@@ -302,7 +302,7 @@ export function AddTattoo() {
 export function GiveOffer() {
   useReveal();
   const { lang } = useLang();
-  const { data, error, reload } = useLoad(() => requests.list());
+  const { data, error, reload } = useLoad(() => requests.list(true));
   const params = new URLSearchParams(window.location.search);
   const [requestId, setRequestId] = useState(params.get('request') ?? '');
   const [price, setPrice] = useState('');
@@ -386,7 +386,7 @@ export function GiveOffer() {
 export function MyOffers() {
   useReveal();
   const { lang } = useLang();
-  const { data, error, reload } = useLoad(() => offers.list());
+  const { data, error, reload } = useLoad(() => offers.list(true));
   const [busy, setBusy] = useState('');
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Tekliflerim' : 'My offers'} subtitle={lang === 'tr' ? 'Gönderdiğiniz tüm teklifler ve durumları.' : 'Everything you sent, with live status.'}>
@@ -427,7 +427,7 @@ export function MyOffers() {
 export function StudioTracking() {
   useReveal();
   const { lang } = useLang();
-  const { data, error } = useLoad(() => offers.list());
+  const { data, error } = useLoad(() => offers.list(true));
   const active = (data ?? []).filter(o => o.status === 'accepted' || o.status === 'completed');
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'İş takibi' : 'Job tracking'}>
@@ -456,7 +456,7 @@ export function StudioTracking() {
 export function StudioCalendar() {
   useReveal();
   const { lang } = useLang();
-  const { data, error } = useLoad(() => offers.list());
+  const { data, error } = useLoad(() => offers.list(true));
   const dated = (data ?? [])
     .filter(o => o.status === 'accepted' && o.appointmentAt)
     .sort((a, b) => (a.appointmentAt ?? '').localeCompare(b.appointmentAt ?? ''));
@@ -518,7 +518,7 @@ export function StudioMaterials() {
 export function StudioReviews() {
   useReveal();
   const { lang } = useLang();
-  const { data, error } = useLoad(() => reviews.mine());
+  const { data, error } = useLoad(() => reviews.mine(true));
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Yorumlar' : 'Reviews'} subtitle={lang === 'tr' ? 'Yalnızca tamamlanmış işlerden gelen gerçek yorumlar.' : 'Only real reviews from completed jobs.'}>
       {error && <ErrorNote message={error} />}
@@ -557,7 +557,7 @@ export function StudioNotifications() {
 export function StudioStats() {
   useReveal();
   const { lang } = useLang();
-  const { data, error } = useLoad(() => dashboard.get() as Promise<ArtistDashboard>);
+  const { data, error } = useLoad(() => dashboard.get('provider') as Promise<ArtistDashboard>);
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'İstatistikler' : 'Statistics'} subtitle={lang === 'tr' ? 'Tümü gerçek aktiviteden hesaplanır — veri yoksa sıfırdır.' : 'All computed from real activity — zero when there is none.'}>
       {error && <ErrorNote message={error} />}

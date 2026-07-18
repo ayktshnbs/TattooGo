@@ -37,6 +37,9 @@ export interface UserRow {
   failedLogins?: number;  // login rate limiting
   lockUntil?: number;     // ms epoch
   createdAt: string;
+  /** Optional provider profile type — one per account, user cannot change it.
+   *  null = customer-only base account. Provider gating keys off THIS, not role. */
+  providerType?: 'artist' | 'studio';
   providerStatus?: 'active' | 'pending_profile' | 'needs_review' | 'suspended';
   deactivatedAt?: number;  // ms epoch; set on soft-delete. Blocks login, hidden everywhere public.
 }

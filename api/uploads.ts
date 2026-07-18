@@ -39,7 +39,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       if (req.query.mine === '1') {
         const user = await getSessionUser(req);
-        if (!user || (user.role !== 'artist' && user.role !== 'studio')) {
+        if (!user || !user.providerType) {
           return res.status(401).json({ error: 'artist sign-in required' });
         }
         res.setHeader('Cache-Control', 'no-store');
@@ -51,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST') {
       const user = await getSessionUser(req);
-      if (!user || (user.role !== 'artist' && user.role !== 'studio')) {
+      if (!user || !user.providerType) {
         return res.status(403).json({ error: 'only signed-in artists can publish to the feed' });
       }
 

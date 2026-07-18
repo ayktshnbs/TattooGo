@@ -20,7 +20,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
 
-    if (user.role === 'customer') {
+    // ?mode=provider → provider stats (requires a provider profile); default →
+    // customer stats. One account can use both dashboards (multi-mode).
+    const providerMode = req.query.mode === 'provider';
+    if (providerMode && !user.providerType) {
+      return res.status(403).json({ error: 'provider profile required' });
+    }
+
+    if (!providerMode) {
       const [myRequests, myOffers, threads] = await Promise.all([
         listRequestsByCustomer(user.id),
         listOffersByCustomer(user.id),
@@ -52,7 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       : null;
 
     return res.status(200).json({
-      role: 'artist',
+      role: user.providerType,
       stats: {
         openRequests: openBoard.length,
         offersSent: myOffers.length,

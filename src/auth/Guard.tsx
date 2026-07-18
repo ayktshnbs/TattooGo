@@ -1,9 +1,12 @@
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth, isArtistRole } from './AuthContext';
+import { useAuth } from './AuthContext';
+import { ProviderOnboarding } from '../pages/studio/ProviderOnboarding';
 
 /**
- * Route guards. While the session is loading nothing is decided; afterwards
- * the wrong role is sent to its own home and anonymous visitors to /login.
+ * Route guards — one-account / multi-mode.
+ * Customer mode is universal: any signed-in user reaches /dashboard.
+ * Provider mode requires the optional provider profile; users without one see
+ * the inline create-provider onboarding instead of being bounced away.
  */
 
 function Waiting() {
@@ -14,21 +17,23 @@ function Waiting() {
   );
 }
 
+/** Any signed-in user — customer mode is available to every account. */
 export function RequireCustomer({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const loc = useLocation();
   if (loading) return <Waiting />;
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
-  if (isArtistRole(user.role)) return <Navigate to="/studio" replace />;
   return <>{children}</>;
 }
 
+/** Provider area: needs a provider profile; otherwise show onboarding to
+ *  create one (intent=artist|studio in the query pre-selects the type). */
 export function RequireArtist({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const loc = useLocation();
   if (loading) return <Waiting />;
   if (!user) return <Navigate to="/login" state={{ from: loc.pathname }} replace />;
-  if (!isArtistRole(user.role)) return <Navigate to="/dashboard" replace />;
+  if (!user.providerType) return <ProviderOnboarding />;
   return <>{children}</>;
 }
 

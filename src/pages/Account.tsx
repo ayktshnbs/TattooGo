@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
 import { SectionHeader } from '../components/SectionHeader';
-import { useAuth, isArtistRole } from '../auth/AuthContext';
+import { useAuth } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
 import { auth } from '../lib/api';
 
@@ -21,7 +21,7 @@ export function Account() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const isProvider = isArtistRole(user?.role);
+  const providerType = user?.providerType ?? null;
 
   const del = async () => {
     setBusy(true); setError('');
@@ -51,7 +51,45 @@ export function Account() {
 
             <div className="row wrap gap-3" style={{ marginTop: 20 }}>
               <Link to="/dashboard" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Müşteri paneli' : 'Customer dashboard'}</Link>
-              {isProvider && <Link to="/studio" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Stüdyo paneli' : 'Studio dashboard'}</Link>}
+              {providerType === 'artist' && <Link to="/studio" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Sanatçı paneli' : 'Artist dashboard'}</Link>}
+              {providerType === 'studio' && <Link to="/studio" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Stüdyo paneli' : 'Studio dashboard'}</Link>}
+            </div>
+
+            {/* Provider Mode — one provider profile per account (artist OR studio). */}
+            <div className="card card-pad col gap-3" style={{ marginTop: 32 }}>
+              <strong>{lang === 'tr' ? 'Sağlayıcı modu' : 'Provider Mode'}</strong>
+              {providerType ? (
+                <>
+                  <span className="mono text-muted" style={{ fontSize: 11 }}>
+                    {providerType === 'artist'
+                      ? (lang === 'tr' ? 'Sanatçı profili' : 'Artist profile')
+                      : (lang === 'tr' ? 'Stüdyo profili' : 'Studio profile')}
+                    {' · '}
+                    {user?.providerStatus === 'active'
+                      ? (lang === 'tr' ? 'aktif' : 'active')
+                      : user?.providerStatus === 'pending_profile'
+                        ? (lang === 'tr' ? 'profil tamamlanmalı' : 'profile incomplete')
+                        : user?.providerStatus ?? '—'}
+                  </span>
+                  <p className="text-muted" style={{ margin: 0, fontSize: 13 }}>
+                    {lang === 'tr'
+                      ? 'Sağlayıcı türünü değiştirmek için destek ile iletişime geçin.'
+                      : 'Contact support to change provider type.'}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted" style={{ margin: 0, fontSize: 14 }}>
+                    {lang === 'tr'
+                      ? 'Sanatçı veya stüdyo olarak BİR sağlayıcı profili oluşturabilirsiniz.'
+                      : 'You can create one provider profile as either an artist or a studio.'}
+                  </p>
+                  <div className="row wrap gap-3">
+                    <Link to="/studio?intent=artist" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Sanatçı profili oluştur' : 'Create Artist Profile'}</Link>
+                    <Link to="/studio?intent=studio" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Stüdyo profili oluştur' : 'Create Studio Profile'}</Link>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Danger zone — reveal, then require an explicit acknowledgment. */}

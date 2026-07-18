@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useLang } from '../i18n/LangContext';
-import { useAuth, isArtistRole } from '../auth/AuthContext';
+import { useAuth } from '../auth/AuthContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { Logo } from './Logo';
 import { Icon, type IconName } from './Icon';
@@ -141,7 +141,7 @@ function AccountMenu() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const isProvider = isArtistRole(user?.role);
+  const providerType = user?.providerType ?? null;
   const initial = (user?.name?.trim()?.[0] ?? '·').toUpperCase();
 
   const doLogout = async () => { setOpen(false); await logout(); navigate('/', { replace: true }); };
@@ -171,7 +171,14 @@ function AccountMenu() {
             </div>
             <div className="hr" />
             <MenuLink to="/dashboard" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Müşteri paneli' : 'Customer dashboard'} />
-            {isProvider && <MenuLink to="/studio" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Stüdyo paneli' : 'Studio dashboard'} />}
+            {providerType === 'artist' && <MenuLink to="/studio" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Sanatçı paneli' : 'Artist dashboard'} />}
+            {providerType === 'studio' && <MenuLink to="/studio" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Stüdyo paneli' : 'Studio dashboard'} />}
+            {!providerType && (
+              <>
+                <MenuLink to="/studio?intent=artist" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Sanatçı profili oluştur' : 'Create Artist Profile'} />
+                <MenuLink to="/studio?intent=studio" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Stüdyo profili oluştur' : 'Create Studio Profile'} />
+              </>
+            )}
             <MenuLink to="/account" onClick={() => setOpen(false)} label={lang === 'tr' ? 'Hesap ayarları' : 'Account settings'} />
             <div className="hr" />
             <button className="mono" onClick={doLogout} style={{ textAlign: 'left', padding: '10px', fontSize: 12, letterSpacing: '0.1em' }}>

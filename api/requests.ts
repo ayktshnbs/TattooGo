@@ -21,7 +21,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
-    const isArtist = user.role === 'artist' || user.role === 'studio';
+    // Multi-mode: provider access keys off the provider profile, not role.
+    const isArtist = !!user.providerType;
 
     if (req.method === 'GET') {
       const id = req.query.id;
@@ -29,25 +30,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const r = await getRequestById(id);
         if (!r) return res.status(404).json({ error: 'not found' });
         const isOwner = r.customerId === user.id;
-        // Active artists may browse open briefs; any artist keeps access to a
-        // request they already have an offer on (existing engagements survive
+        // Active providers may browse open briefs; any provider keeps access to
+        // a request they already have an offer on (existing engagements survive
         // a status downgrade). Never extends to other customers.
         const artistCanSee = isArtist &&
           ((user.providerStatus === 'active' && r.status === 'open') || await hasOffer(r.id, user.id));
         if (!isOwner && !artistCanSee) return res.status(403).json({ error: 'forbidden' });
         return res.status(200).json(r);
       }
-      if (isArtist && user.providerStatus !== 'active') {
-        return res.status(403).json({ error: 'profile must be active to view the request board' });
+      // ?board=1 → provider request board (active providers only); default →
+      // my own requests. One account can use both views (multi-mode).
+      if (req.query.board === '1') {
+        if (!isArtist) return res.status(403).json({ error: 'provider profile required' });
+        if (user.providerStatus !== 'active') {
+          return res.status(403).json({ error: 'profile must be active to view the request board' });
+        }
+        return res.status(200).json(await listOpenRequests());
       }
-      const list = user.role === 'customer'
-        ? await listRequestsByCustomer(user.id)
-        : await listOpenRequests();
-      return res.status(200).json(list);
+      return res.status(200).json(await listRequestsByCustomer(user.id));
     }
 
     if (req.method === 'POST') {
-      if (user.role !== 'customer') return res.status(403).json({ error: 'only customers can create requests' });
+      // Any signed-in user can create a request — customer mode is universal.
       const { title, description, style, placement, size, color, city, budgetMin, budgetMax, imageData } = req.body ?? {};
       if (typeof title !== 'string' || !title.trim() || title.length > 120) {
         return res.status(400).json({ error: 'title required (max 120 chars)' });

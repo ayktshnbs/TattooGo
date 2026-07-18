@@ -107,7 +107,8 @@ export async function getSessionUser(req: VercelRequest): Promise<UserRow | null
 export function publicUser(u: UserRow) {
   const locPublic = (u.isPublicLocation ?? false);
   return {
-    id: u.id, name: u.name, role: u.role, city: u.city, styles: u.styles, bio: u.bio, createdAt: u.createdAt,
+    // Public "role" is the provider type — the legacy role column is vestigial.
+    id: u.id, name: u.name, role: u.providerType ?? u.role, city: u.city, styles: u.styles, bio: u.bio, createdAt: u.createdAt,
     district: u.district,
     hasPublicLocation: locPublic && u.latitude != null && u.longitude != null,
     latitude: locPublic ? u.latitude : undefined,
@@ -128,6 +129,7 @@ export function ownUser(u: UserRow) {
     longitude: u.longitude,
     publicAddressLabel: u.publicAddressLabel,
     isPublicLocation: u.isPublicLocation ?? false,
+    providerType: u.providerType ?? null,
     providerStatus: u.providerStatus,
   };
 }

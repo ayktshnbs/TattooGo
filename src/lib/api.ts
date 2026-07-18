@@ -35,7 +35,10 @@ export interface Me {
   id: string;
   name: string;
   email?: string;
+  /** Legacy display role — provider gating uses providerType instead. */
   role: 'customer' | 'artist' | 'studio';
+  /** Optional provider profile (one per account, cannot be changed by the user). */
+  providerType?: 'artist' | 'studio' | null;
   city?: string;
   bio?: string;
   styles?: string[];
@@ -64,8 +67,10 @@ export interface ProfileUpdate {
 
 export const auth = {
   me: () => call<Me>('/api/auth'),
-  register: (input: { email: string; password: string; name: string; role: Me['role']; city?: string; bio?: string; styles?: string[] }) =>
+  register: (input: { email: string; password: string; name: string }) =>
     call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'register', ...input }) }),
+  createProvider: (providerType: 'artist' | 'studio') =>
+    call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'create-provider', providerType }) }),
   login: (email: string, password: string) =>
     call<Me>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'login', email, password }) }),
   logout: () => call<{ ok: true }>('/api/auth', { method: 'POST', body: JSON.stringify({ action: 'logout' }) }),
@@ -138,7 +143,8 @@ export interface ApiRequest {
 }
 
 export const requests = {
-  list: () => call<ApiRequest[]>('/api/requests'),
+  /** board=true → provider request board (active providers); default → own requests. */
+  list: (board = false) => call<ApiRequest[]>(board ? '/api/requests?board=1' : '/api/requests'),
   get: (id: string) => call<ApiRequest>(`/api/requests?id=${encodeURIComponent(id)}`),
   create: (input: {
     title: string; description: string; style: string; placement: string; size: string; color: string;
@@ -166,7 +172,8 @@ export interface ApiOffer {
 }
 
 export const offers = {
-  list: () => call<ApiOffer[]>('/api/offers'),
+  /** sent=true → offers I sent as a provider; default → offers on my requests. */
+  list: (sent = false) => call<ApiOffer[]>(sent ? '/api/offers?sent=1' : '/api/offers'),
   create: (input: { requestId: string; price: number; message: string; appointmentAt?: string }) =>
     call<ApiOffer>('/api/offers', { method: 'POST', body: JSON.stringify(input) }),
   act: (id: string, action: 'accept' | 'reject' | 'complete') =>
@@ -216,7 +223,8 @@ export interface ApiReview {
 }
 
 export const reviews = {
-  mine: () => call<ApiReview[]>('/api/reviews'),
+  /** received=true → reviews about my provider profile; default → reviews I wrote. */
+  mine: (received = false) => call<ApiReview[]>(received ? '/api/reviews?received=1' : '/api/reviews'),
   byArtist: (artistId: string) => call<ApiReview[]>(`/api/reviews?artistId=${encodeURIComponent(artistId)}`),
   create: (input: { offerId: string; rating: number; text: string }) =>
     call<ApiReview>('/api/reviews', { method: 'POST', body: JSON.stringify(input) }),
@@ -280,7 +288,7 @@ export interface CustomerDashboard {
 }
 
 export interface ArtistDashboard {
-  role: 'artist';
+  role: 'artist' | 'studio';
   stats: {
     openRequests: number; offersSent: number; offersPending: number;
     jobsBooked: number; jobsCompleted: number; earnings: number;
@@ -292,7 +300,8 @@ export interface ArtistDashboard {
 }
 
 export const dashboard = {
-  get: () => call<CustomerDashboard | ArtistDashboard>('/api/dashboard'),
+  /** mode 'provider' → provider stats (requires provider profile); default → customer stats. */
+  get: (mode?: 'provider') => call<CustomerDashboard | ArtistDashboard>(mode === 'provider' ? '/api/dashboard?mode=provider' : '/api/dashboard'),
 };
 
 /* ---------- portfolio (uploads) ---------- */

@@ -8,14 +8,16 @@ import { del } from '@vercel/blob';
 import {
   findUserByEmail, createUser, setEmailVerified, setPassword,
   recordLoginFailure, clearLoginFailures, isLocked, createToken, consumeToken,
-  updateProfile, getUserById, deactivateAccount,
+  updateProfile, getUserById, deactivateAccount, setProviderType,
 } from './_lib/repo.js';
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 import { isTurkishCity, isInTurkeyBounds } from './_lib/cities.js';
 import { isValidStyle, MAX_STYLES } from './_lib/styles.js';
 
-function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus'] {
-  if (u.role === 'customer') return 'active';
+function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus'] | undefined {
+  // Multi-mode: activation applies only to accounts WITH a provider profile.
+  // Base (customer-only) accounts have no provider_status at all.
+  if (!u.providerType) return undefined;
   if (u.providerStatus === 'suspended') return 'suspended';
   if (u.providerStatus === 'needs_review') return 'needs_review';
 
@@ -64,7 +66,6 @@ function evaluateArtistActivation(u: UserRow, p: any): UserRow['providerStatus']
  * Email sends never block or fail the underlying action.
  */
 
-const ROLES = new Set(['customer', 'artist', 'studio']);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const VERIFY_TTL = 24 * 60 * 60 * 1000;
 const RESET_TTL = 60 * 60 * 1000;
@@ -90,7 +91,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (action === 'register') {
-      const { email, password, name, role } = req.body ?? {};
+      // One-account / multi-mode: registration collects ONLY name/email/password.
+      // Every account is a base (customer) account; a provider profile is added
+      // later via 'create-provider'. A legacy `role` field in the body is ignored.
+      const { email, password, name } = req.body ?? {};
       if (typeof email !== 'string' || !EMAIL_RE.test(email) || email.length > 120) {
         return res.status(400).json({ error: 'valid email required' });
       }
@@ -100,22 +104,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof name !== 'string' || !name.trim() || name.length > 80) {
         return res.status(400).json({ error: 'name required' });
       }
-      if (typeof role !== 'string' || !ROLES.has(role)) {
-        return res.status(400).json({ error: 'role must be customer, artist or studio' });
-      }
-      
+
       const { salt, passHash } = hashPassword(password);
       const user: UserRow = {
         id: newId('usr'),
         email: email.toLowerCase().trim(),
         name: name.trim(),
-        role: role as UserRow['role'],
+        role: 'customer',
         passHash,
         salt,
         emailVerified: false,
         sessionEpoch: 0,
         createdAt: today(),
-        providerStatus: role === 'customer' ? 'active' : 'pending_profile',
       };
       const created = await createUser(user);
       if (!created) return res.status(409).json({ error: 'an account with this email already exists' });
@@ -124,6 +124,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       await welcomeVerifyEmail(user.email, user.name, token); // never throws
       setSessionCookie(res, signSession(user.id, user.role, 0));
       return res.status(201).json(ownUser(user));
+    }
+
+    if (action === 'create-provider') {
+      // Create the optional provider profile. One per account, EVER: the repo
+      // update only succeeds while provider_type IS NULL, so the type can never
+      // be changed or duplicated by the user (support-only later).
+      const me = await getSessionUser(req);   // deactivated sessions resolve null → 401
+      if (!me) return res.status(401).json({ error: 'sign in required' });
+      const { providerType } = req.body ?? {};
+      if (providerType !== 'artist' && providerType !== 'studio') {
+        return res.status(400).json({ error: 'providerType must be artist or studio' });
+      }
+      if (me.providerType) {
+        return res.status(409).json({ error: 'provider profile already exists — contact support to change type' });
+      }
+      const ok = await setProviderType(me.id, providerType);
+      if (!ok) return res.status(409).json({ error: 'provider profile already exists — contact support to change type' });
+      const updated = await getUserById(me.id);
+      return res.status(200).json(updated ? ownUser(updated) : { ok: true });
     }
 
     if (action === 'login') {
@@ -203,7 +222,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'invalid name' });
       }
 
-      const isArtist = me.role === 'artist' || me.role === 'studio';
+      const isArtist = !!me.providerType;
       // Location fields are artist/studio-only; customers can't set a map pin.
       if (!isArtist && (district != null || latitude != null || longitude != null || publicAddressLabel != null || isPublicLocation != null)) {
         return res.status(403).json({ error: 'only artists/studios can set a public location' });

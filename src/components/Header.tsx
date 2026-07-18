@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Logo } from './Logo';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { useLang } from '../i18n/LangContext';
-import { useAuth, isArtistRole } from '../auth/AuthContext';
+import { useAuth } from '../auth/AuthContext';
 import { IndexMenu } from './IndexMenu';
 import { Icon } from './Icon';
 
@@ -13,7 +13,7 @@ export function Header({ tone = 'light', overHero = false }: { tone?: 'light' | 
   const { t, lang } = useLang();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const dashboardPath = isArtistRole(user?.role) ? '/studio' : '/dashboard';
+  const dashboardPath = user?.providerType ? '/studio' : '/dashboard';
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => typeof window === 'undefined' ? true : window.innerWidth >= DESKTOP_BP);
