@@ -26,16 +26,10 @@ export function DashboardLayout({ scope, title, subtitle, children }: Props) {
 
   const customerNav: NavItem[] = [
     { to: '/dashboard',                 num: '01', label: t('cust.home') },
-    { to: '/dashboard/create-request',  num: '02', label: t('cust.createRequest') },
-    { to: '/dashboard/requests',        num: '03', label: t('cust.requests') },
-    { to: '/dashboard/offers',          num: '04', label: t('cust.offers') },
-    { to: '/dashboard/messages',        num: '05', label: t('cust.messages') },
-    { to: '/dashboard/notifications',   num: '06', label: t('cust.notifications') },
-    { to: '/dashboard/favorites',       num: '07', label: t('cust.favorites') },
-    { to: '/dashboard/appointments',    num: '08', label: t('cust.appointments') },
-    { to: '/dashboard/tracking',        num: '09', label: t('cust.tracking') },
-    { to: '/dashboard/reviews',         num: '10', label: t('cust.reviews') },
-    { to: '/dashboard/profile',         num: '11', label: t('cust.profile') },
+    { to: '/dashboard/requests',        num: '02', label: t('cust.requests') },
+    { to: '/dashboard/messages',        num: '03', label: t('cust.messages') },
+    { to: '/dashboard/notifications',   num: '04', label: t('cust.notifications') },
+    { to: '/dashboard/profile',         num: '05', label: t('cust.profile') },
   ];
 
   const studioNav: NavItem[] = [
@@ -212,8 +206,8 @@ function BottomNav({ scope }: { scope: DashboardScope }) {
     ? [
         { to: '/dashboard',                label: t('cust.home'),          icon: 'home' },
         { to: '/dashboard/requests',       label: t('cust.requests'),      icon: 'search' },
-        { to: '/dashboard/create-request', label: t('cust.createRequest'), icon: 'add', primary: true },
         { to: '/dashboard/messages',       label: t('cust.messages'),      icon: 'messages' },
+        { to: '/dashboard/notifications',  label: t('cust.notifications'), icon: 'notifications' },
         { to: '/dashboard/profile',        label: t('cust.profile'),       icon: 'editProfile' },
       ]
     : [

@@ -8,7 +8,8 @@ import { useLang } from '../../i18n/LangContext';
 import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
 import { STYLES, CITIES, PLACEMENTS, INK_COLORS, taxonomyLabel, styleLabel } from '../../data/mock';
-import { fileToUpload } from '../../data/uploads';
+import { fileToUpload, fetchUploads, UPLOADS_EVENT } from '../../data/uploads';
+import type { TattooDesign } from '../../data/types';
 import {
   dashboard, requests, offers, messages, reviews, notifications, auth as authApi,
   type ApiRequest, type ApiOffer, type ApiMessage, type CustomerDashboard,
@@ -92,57 +93,201 @@ function OfferRowCard({ o, lang, onAct, busy }: { o: ApiOffer; lang: string; onA
   );
 }
 
+function formatPrice(price?: number) {
+  return typeof price === 'number' && Number.isFinite(price) ? `₺${price.toLocaleString()}` : null;
+}
+
+function designImage(design: TattooDesign) {
+  return design.imageUrl ?? design.image ?? '';
+}
+
+function DesignCard({ design, compact }: { design: TattooDesign; compact?: boolean }) {
+  const { lang } = useLang();
+  const price = formatPrice(design.price);
+  const src = designImage(design);
+  return (
+    <article className="card card-lift col" style={{ overflow: 'hidden', breakInside: 'avoid', marginBottom: compact ? 18 : 24 }}>
+      {src ? (
+        <img
+          src={src}
+          alt={design.title}
+          loading="lazy"
+          style={{ width: '100%', aspectRatio: String(design.imageRatio || 0.78), objectFit: 'cover', display: 'block', background: 'var(--paper-warm)' }}
+        />
+      ) : (
+        <div className="ph" style={{ aspectRatio: String(design.imageRatio || 0.78) }} />
+      )}
+      <div className="card-pad col gap-2" style={{ padding: compact ? 16 : 20 }}>
+        <div className="row between center gap-3">
+          <span className="mono text-muted" style={{ fontSize: 10 }}>{styleLabel(design.style, lang as 'en' | 'tr')}</span>
+          <button className="mono" aria-label={lang === 'tr' ? 'Kaydet' : 'Save'} style={{ color: design.isSaved ? 'var(--accent)' : 'var(--muted)', fontSize: 12 }}>
+            {design.isSaved ? 'Saved' : 'Save'}
+          </button>
+        </div>
+        <h3 className="display" style={{ fontSize: compact ? 18 : 22, margin: 0 }}>{design.title}</h3>
+        <span className="mono text-muted" style={{ fontSize: 10 }}>
+          {design.artistName}{design.studioName ? ` · ${design.studioName}` : ''}{design.city ? ` · ${design.city}` : ''}
+        </span>
+        <div className="row between center gap-3" style={{ marginTop: 8 }}>
+          <span className="mono text-muted" style={{ fontSize: 10 }}>
+            {price ? `${lang === 'tr' ? 'Başlangıç' : 'From'} ${price}` : `${design.likes.toLocaleString()} likes`}
+          </span>
+          <Link to="/designs" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Detaylar' : 'View details'}</Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function DiscoverySection({ num, title, action, children }: { num: string; title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section style={{ marginTop: 44 }}>
+      <div className="row between center" style={{ borderBottom: '1px solid var(--hairline)', paddingBottom: 12, marginBottom: 20, gap: 16 }}>
+        <span className="mono text-muted">{num} · {title}</span>
+        {action}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function PopularStyleGrid({ designs }: { designs: TattooDesign[] }) {
+  const { lang } = useLang();
+  const counts = Object.values(designs.reduce<Record<string, { style: string; count: number }>>((acc, d) => {
+    const key = String(d.style);
+    acc[key] = acc[key] ?? { style: key, count: 0 };
+    acc[key].count += 1;
+    return acc;
+  }, {})).sort((a, b) => b.count - a.count).slice(0, 6);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1, border: '1px solid var(--hairline)' }}>
+      {counts.map((item, i) => (
+        <Link key={item.style} to="/designs" className="col gap-2" style={{ padding: 18, minHeight: 128, background: i % 2 ? 'var(--paper)' : 'var(--paper-warm)', justifyContent: 'space-between' }}>
+          <span className="mono text-muted">{String(i + 1).padStart(2, '0')}</span>
+          <span className="display" style={{ fontSize: 22 }}>{styleLabel(item.style, lang as 'en' | 'tr')}</span>
+          <span className="mono text-muted" style={{ fontSize: 10 }}>{item.count} {lang === 'tr' ? 'tasarım' : 'designs'}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function RecommendedArtists({ designs }: { designs: TattooDesign[] }) {
+  const { lang } = useLang();
+  const artists = Object.values(designs.reduce<Record<string, { id: string; name: string; studio?: string; city?: string; styles: Set<string>; count: number; latest?: string }>>((acc, d) => {
+    const id = d.artistId || d.artistName;
+    acc[id] = acc[id] ?? { id, name: d.artistName, studio: d.studioName, city: d.city, styles: new Set(), count: 0 };
+    acc[id].count += 1;
+    acc[id].styles.add(String(d.style));
+    acc[id].latest = acc[id].latest ?? designImage(d);
+    return acc;
+  }, {})).sort((a, b) => b.count - a.count).slice(0, 4);
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+      {artists.map(a => (
+        <Link key={a.id} to={`/artists/${a.id}`} className="card card-pad card-lift row gap-3 center">
+          {a.latest ? (
+            <img src={a.latest} alt="" loading="lazy" style={{ width: 62, height: 62, objectFit: 'cover', flexShrink: 0 }} />
+          ) : (
+            <span style={{ width: 62, height: 62, background: 'var(--paper-warm)', border: '1px solid var(--hairline)', flexShrink: 0 }} />
+          )}
+          <span className="col gap-1" style={{ minWidth: 0 }}>
+            <strong style={{ fontSize: 15 }}>{a.name}</strong>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>{a.studio ?? (lang === 'tr' ? 'Sanatçı' : 'Artist')}{a.city ? ` · ${a.city}` : ''}</span>
+            <span className="mono text-muted" style={{ fontSize: 10 }}>{Array.from(a.styles).slice(0, 2).map(s => styleLabel(s, lang as 'en' | 'tr')).join(' · ')} · {a.count}</span>
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 /* ---------- Home ---------- */
 export function CustomerHome() {
   useReveal();
-  const { lang, t } = useLang();
-  const { user } = useAuth();
-  const { data, error } = useLoad(() => dashboard.get() as Promise<CustomerDashboard>);
+  const { lang } = useLang();
+  const { data, error, reload } = useLoad(() => fetchUploads());
+
+  useEffect(() => {
+    window.addEventListener(UPLOADS_EVENT, reload);
+    window.addEventListener('storage', reload);
+    return () => {
+      window.removeEventListener(UPLOADS_EVENT, reload);
+      window.removeEventListener('storage', reload);
+    };
+  }, [reload]);
+
+  const designs = (data ?? []).filter(d => d.status !== 'pending');
+  const featured = [...designs].sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0)).slice(0, 6);
+  const recent = [...designs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 6);
+  const saved = designs.filter(d => d.isSaved).slice(0, 4);
+
   return (
     <DashboardLayout
       scope="customer"
-      title={lang === 'tr' ? `Hoş geldin, ${user?.name ?? ''}.` : `Welcome, ${user?.name ?? ''}.`}
-      subtitle={lang === 'tr' ? 'İstekleriniz, teklifler ve randevular — yalnızca gerçek veriler.' : 'Your requests, offers and appointments — real data only.'}
+      title={lang === 'tr' ? 'Bir sonraki dövmeni keşfet' : 'Discover your next tattoo'}
+      subtitle={lang === 'tr' ? 'Dövme fikirlerini, sanatçıları ve özel teklifleri keşfet.' : 'Browse tattoo ideas, artists and custom offers.'}
     >
       {error && <ErrorNote message={error} />}
       {!data && !error && <Loading />}
       {data && (
         <>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 32 }}>
-            <StatsCard label={lang === 'tr' ? 'Aktif istek' : 'Active requests'} value={String(data.stats.activeRequests)} />
-            <StatsCard label={lang === 'tr' ? 'Açık teklif' : 'Open offers'} value={String(data.stats.openOffers)} />
-            <StatsCard label={lang === 'tr' ? 'Yaklaşan' : 'Upcoming'} value={String(data.stats.upcoming)} />
-            <StatsCard label={lang === 'tr' ? 'Tamamlanan' : 'Completed'} value={String(data.stats.completed)} />
+          <div className="row between center wrap" style={{ gap: 16, marginBottom: 32, padding: 20, border: '1px solid var(--hairline)', background: 'var(--paper-warm)' }}>
+            <div className="col gap-1">
+              <span className="mono text-muted">{lang === 'tr' ? 'Keşif akışı' : 'Discovery feed'}</span>
+              <span className="display" style={{ fontSize: 26 }}>TattooGo</span>
+            </div>
+            <Link to="/dashboard/create-request" className="btn btn-accent">{lang === 'tr' ? 'Dövme isteği oluştur' : 'Create Tattoo Request'}</Link>
           </div>
 
-          <SectionTitle num="A1" label={lang === 'tr' ? 'İsteklerim' : 'My requests'} action={<Link to="/dashboard/requests" className="mono">{t('common.viewAll')} →</Link>} />
-          {data.recentRequests.length === 0 ? (
+          {designs.length === 0 ? (
             <Empty
-              title={lang === 'tr' ? 'Henüz istek yok' : 'No requests yet'}
-              body={lang === 'tr' ? 'İlk dövme isteğinizi oluşturun; sanatçılar teklif göndersin.' : 'Create your first tattoo request and let artists send offers.'}
-              cta={lang === 'tr' ? 'İstek oluştur' : 'Create a request'}
+              title={lang === 'tr' ? 'Henüz paylaşılan dövme yok' : 'No tattoo inspirations yet'}
+              body={lang === 'tr' ? 'Sanatçılar dövme tasarımları yükledikten sonra burada görünecek.' : 'Artists will appear here after they upload tattoo designs.'}
+              cta={lang === 'tr' ? 'Dövme isteği oluştur' : 'Create Tattoo Request'}
               to="/dashboard/create-request"
             />
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-              {data.recentRequests.slice(0, 2).map(r => <RequestRowCard key={r.id} r={r} lang={lang} />)}
-            </div>
-          )}
+            <>
+              <DiscoverySection num="01" title={lang === 'tr' ? 'Öne çıkan dövmeler' : 'Featured Tattoos'} action={<Link to="/designs" className="mono">{lang === 'tr' ? 'Tümünü gör' : 'View all'} ›</Link>}>
+                <div className="masonry">
+                  {featured.map(d => <DesignCard key={d.id} design={d} />)}
+                </div>
+              </DiscoverySection>
 
-          <SectionTitle num="A2" label={lang === 'tr' ? 'Son teklifler' : 'Latest offers'} action={<Link to="/dashboard/offers" className="mono">{t('common.viewAll')} →</Link>} />
-          {data.recentOffers.length === 0 ? (
-            <Empty title={lang === 'tr' ? 'Henüz teklif yok' : 'No offers yet'} body={lang === 'tr' ? 'İsteğiniz yayına girince teklifler burada listelenir.' : 'Offers appear here once artists respond to your requests.'} />
-          ) : (
-            <div className="col gap-3">
-              {data.recentOffers.slice(0, 3).map(o => <OfferRowCard key={o.id} o={o} lang={lang} />)}
-            </div>
+              <DiscoverySection num="02" title={lang === 'tr' ? 'Popüler stiller' : 'Popular Styles'}>
+                <PopularStyleGrid designs={designs} />
+              </DiscoverySection>
+
+              <DiscoverySection num="03" title={lang === 'tr' ? 'Önerilen sanatçılar' : 'Recommended Artists'}>
+                <RecommendedArtists designs={designs} />
+              </DiscoverySection>
+
+              <DiscoverySection num="04" title={lang === 'tr' ? 'Yeni eklenenler' : 'Recently Added'}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
+                  {recent.map(d => <DesignCard key={d.id} design={d} compact />)}
+                </div>
+              </DiscoverySection>
+
+              <DiscoverySection num="05" title={lang === 'tr' ? 'Kaydedilen ilhamlar' : 'Saved Inspirations'}>
+                {saved.length === 0 ? (
+                  <div className="card card-pad row between center wrap" style={{ gap: 16 }}>
+                    <span className="text-muted">{lang === 'tr' ? 'Kaydettiğiniz dövme tasarımları burada toplanacak.' : 'Tattoo designs you save will collect here.'}</span>
+                    <Link to="/designs" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Tasarımları keşfet' : 'Browse designs'}</Link>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
+                    {saved.map(d => <DesignCard key={d.id} design={d} compact />)}
+                  </div>
+                )}
+              </DiscoverySection>
+            </>
           )}
         </>
       )}
     </DashboardLayout>
   );
 }
-
 /* ---------- Create request ---------- */
 const SIZES = ['xs', 'sm', 'md', 'lg', 'xl'];
 
@@ -588,29 +733,105 @@ export function VerificationRow() {
 
 export function CustomerProfile() {
   useReveal();
-  const { lang } = useLang();
+  const { lang, t } = useLang();
   const { user } = useAuth();
+  const { data, error } = useLoad(() => dashboard.get() as Promise<CustomerDashboard>);
+
   return (
-    <DashboardLayout scope="customer" title={lang === 'tr' ? 'Profilim' : 'My profile'}>
-      <div className="card card-pad col gap-3" style={{ maxWidth: 520 }}>
-        <div className="row between center">
-          <span className="mono text-muted">{lang === 'tr' ? 'Ad' : 'Name'}</span>
-          <strong>{user?.name}</strong>
-        </div>
-        <div className="row between center">
-          <span className="mono text-muted">Email</span>
-          <span>{user?.email}</span>
-        </div>
-        <VerificationRow />
-        <div className="row between center">
-          <span className="mono text-muted">{lang === 'tr' ? 'Şehir' : 'City'}</span>
-          <span>{user?.city ?? '—'}</span>
-        </div>
-        <div className="row between center">
-          <span className="mono text-muted">{lang === 'tr' ? 'Üyelik' : 'Member since'}</span>
-          <span>{user?.createdAt}</span>
-        </div>
-      </div>
+    <DashboardLayout
+      scope="customer"
+      title={lang === 'tr' ? `Hoş geldin, ${user?.name ?? ''}.` : `Welcome, ${user?.name ?? ''}.`}
+      subtitle={lang === 'tr' ? 'Profil bilgilerin, isteklerin, teklifler ve hesap ayarların.' : 'Your profile, requests, offers and account settings.'}
+    >
+      {error && <ErrorNote message={error} />}
+      {!data && !error && <Loading />}
+      {data && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 32 }}>
+            <StatsCard label={lang === 'tr' ? 'Aktif istek' : 'Active requests'} value={String(data.stats.activeRequests)} />
+            <StatsCard label={lang === 'tr' ? 'Açık teklif' : 'Open offers'} value={String(data.stats.openOffers)} />
+            <StatsCard label={lang === 'tr' ? 'Yaklaşan randevu' : 'Upcoming appointments'} value={String(data.stats.upcoming)} />
+            <StatsCard label={lang === 'tr' ? 'Tamamlanan istek' : 'Completed requests'} value={String(data.stats.completed)} />
+          </div>
+
+          <SectionTitle num="P1" label={lang === 'tr' ? 'İsteklerim' : 'My requests'} action={<Link to="/dashboard/requests" className="mono">{t('common.viewAll')} ›</Link>} />
+          {data.recentRequests.length === 0 ? (
+            <Empty
+              title={lang === 'tr' ? 'Henüz istek yok' : 'No requests yet'}
+              body={lang === 'tr' ? 'İlk dövme isteğinizi oluşturun; sanatçılar teklif göndersin.' : 'Create your first tattoo request and let artists send offers.'}
+              cta={lang === 'tr' ? 'İstek oluştur' : 'Create a request'}
+              to="/dashboard/create-request"
+            />
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+              {data.recentRequests.slice(0, 3).map(r => <RequestRowCard key={r.id} r={r} lang={lang} />)}
+            </div>
+          )}
+
+          <SectionTitle num="P2" label={lang === 'tr' ? 'Son teklifler' : 'Latest offers'} action={<Link to="/dashboard/offers" className="mono">{t('common.viewAll')} ›</Link>} />
+          {data.recentOffers.length === 0 ? (
+            <Empty title={lang === 'tr' ? 'Henüz teklif yok' : 'No offers yet'} body={lang === 'tr' ? 'İsteğiniz yayına girince teklifler burada listelenir.' : 'Offers appear here once artists respond to your requests.'} />
+          ) : (
+            <div className="col gap-3">
+              {data.recentOffers.slice(0, 3).map(o => <OfferRowCard key={o.id} o={o} lang={lang} />)}
+            </div>
+          )}
+
+          <SectionTitle num="P3" label={lang === 'tr' ? 'Profil bilgileri' : 'Profile information'} />
+          <div className="card card-pad col gap-3" style={{ maxWidth: 620 }}>
+            <div className="row between center gap-4 wrap">
+              <span className="mono text-muted">{lang === 'tr' ? 'Ad' : 'Name'}</span>
+              <strong>{user?.name}</strong>
+            </div>
+            <div className="row between center gap-4 wrap">
+              <span className="mono text-muted">Email</span>
+              <span>{user?.email}</span>
+            </div>
+            <VerificationRow />
+            <div className="row between center gap-4 wrap">
+              <span className="mono text-muted">{lang === 'tr' ? 'Şehir' : 'City'}</span>
+              <span>{user?.city ?? '—'}</span>
+            </div>
+            <div className="row between center gap-4 wrap">
+              <span className="mono text-muted">{lang === 'tr' ? 'Üyelik' : 'Member since'}</span>
+              <span>{user?.createdAt}</span>
+            </div>
+          </div>
+
+          <SectionTitle num="P4" label={lang === 'tr' ? 'Hesap ayarları' : 'Account settings'} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+            <Link to="/account" className="card card-pad col gap-2 card-lift">
+              <span className="mono text-muted">{lang === 'tr' ? 'Hesap' : 'Account'}</span>
+              <strong>{lang === 'tr' ? 'Hesap ayarları' : 'Account settings'}</strong>
+              <span className="text-muted" style={{ fontSize: 14 }}>{lang === 'tr' ? 'Profil ve hesap tercihlerini güncelle.' : 'Update profile and account preferences.'}</span>
+            </Link>
+            <Link to="/account" className="card card-pad col gap-2 card-lift">
+              <span className="mono text-muted">{lang === 'tr' ? 'Güvenlik' : 'Security'}</span>
+              <strong>{lang === 'tr' ? 'Güvenlik ve gizlilik' : 'Security and privacy'}</strong>
+              <span className="text-muted" style={{ fontSize: 14 }}>{lang === 'tr' ? 'Şifre, oturum ve gizlilik ayarları.' : 'Password, session and privacy controls.'}</span>
+            </Link>
+            <div className="card card-pad col gap-2">
+              <span className="mono text-muted">{lang === 'tr' ? 'Dil' : 'Language'}</span>
+              <strong>{lang === 'tr' ? 'Dil ayarları' : 'Language settings'}</strong>
+              <span className="text-muted" style={{ fontSize: 14 }}>{lang === 'tr' ? 'Aktif dil: Türkçe.' : 'Active language: English.'}</span>
+            </div>
+          </div>
+
+          <SectionTitle num="P5" label={lang === 'tr' ? 'Yorumlar ve geçmiş' : 'Reviews and history'} />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+            <Link to="/dashboard/reviews" className="card card-pad col gap-2 card-lift">
+              <span className="mono text-muted">{lang === 'tr' ? 'Yorumlar' : 'Reviews'}</span>
+              <strong>{lang === 'tr' ? 'Yorumlarım' : 'My reviews'}</strong>
+              <span className="text-muted" style={{ fontSize: 14 }}>{lang === 'tr' ? 'Tamamlanan işler için yorum bırak.' : 'Review completed bookings.'}</span>
+            </Link>
+            <Link to="/dashboard/tracking" className="card card-pad col gap-2 card-lift">
+              <span className="mono text-muted">{lang === 'tr' ? 'Geçmiş' : 'History'}</span>
+              <strong>{lang === 'tr' ? 'Sipariş / istek geçmişi' : 'Order / request history'}</strong>
+              <span className="text-muted" style={{ fontSize: 14 }}>{lang === 'tr' ? 'Kabul edilen ve tamamlanan işleri takip et.' : 'Track accepted and completed work.'}</span>
+            </Link>
+          </div>
+        </>
+      )}
     </DashboardLayout>
   );
 }

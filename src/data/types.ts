@@ -72,13 +72,16 @@ export interface StudioProfile extends User {
 export interface TattooDesign {
   id: string;
   title: string;
+  image?: string; // backend-ready alias for imageUrl
   artistId: string;
   artistName: string;
+  studioName?: string;
   style: TattooStyle;
   tags: string[];
   city?: string;
   price?: number;
   likes: number;
+  isSaved?: boolean;
   views: number;
   imageRatio: number; // 0.6 .. 1.4
   swatch: string; // gradient swatch token
@@ -86,6 +89,28 @@ export interface TattooDesign {
   source?: 'artist' | 'customer'; // who submitted it — undefined for seeded mock data
   status?: 'pending' | 'approved'; // community uploads await moderation before going public
   createdAt: string;
+}
+
+export interface CustomerRequest {
+  id: string;
+  customerId: string;
+  description: string;
+  style: TattooStyle | string;
+  placement: BodyPlacement | string;
+  size: TattooSize | string;
+  city?: string;
+  budget?: number;
+  status: 'open' | 'booked' | 'completed' | 'cancelled' | string;
+  images: string[];
+  offersCount: number;
+  createdAt: string;
+}
+
+export interface ProfileStats {
+  activeRequests: number;
+  openOffers: number;
+  upcomingAppointments: number;
+  completedRequests: number;
 }
 
 export interface TattooRequest {
