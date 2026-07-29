@@ -103,6 +103,47 @@ export function StarField() {
         nctx.fill();
       }
 
+      // Faint star clusters (dense pockets of tiny stars)
+      for (let c = 0; c < 4; c++) {
+        const cx = Math.random() * w;
+        const cy = Math.random() * h;
+        for (let i = 0; i < 30; i++) {
+          const a = Math.random() * Math.PI * 2;
+          const dist = Math.random() * m * 0.06; // tight cluster
+          const sx = cx + Math.cos(a) * dist;
+          const sy = cy + Math.sin(a) * dist;
+          nctx.fillStyle = `rgba(200,210,255,${(Math.random() * 0.2).toFixed(3)})`;
+          nctx.beginPath();
+          nctx.arc(sx, sy, Math.random() * 0.5 + 0.1, 0, Math.PI * 2);
+          nctx.fill();
+        }
+      }
+
+      // Soft far-away quasar / deep space core
+      cloud(w * 0.65, h * 0.35, m * 0.08, '180,200,255', 0.12);
+      cloud(w * 0.65, h * 0.35, m * 0.02, '255,255,255', 0.25);
+
+      // Tiny distant planets — drawn with a subtle lighting gradient so they read as spheres, not flat circles.
+      const planets = [
+        { cx: w * 0.18, cy: h * 0.22, r: m * 0.012, rgb: '140,150,180', a: 0.4 }, // cool gray/blue
+        { cx: w * 0.85, cy: h * 0.75, r: m * 0.018, rgb: '170,140,130', a: 0.3 }, // muted rust
+        { cx: w * 0.72, cy: h * 0.12, r: m * 0.008, rgb: '110,130,150', a: 0.35 }, // deep slate
+      ];
+      for (const p of planets) {
+        const g = nctx.createLinearGradient(p.cx - p.r, p.cy - p.r, p.cx + p.r, p.cy + p.r);
+        g.addColorStop(0, `rgba(${p.rgb},${p.a})`);
+        g.addColorStop(1, `rgba(0,0,0,0.9)`);
+        nctx.fillStyle = g;
+        nctx.beginPath();
+        nctx.arc(p.cx, p.cy, p.r, 0, Math.PI * 2);
+        nctx.fill();
+        
+        // Faint atmospheric rim
+        nctx.strokeStyle = `rgba(${p.rgb},${p.a * 0.4})`;
+        nctx.lineWidth = 0.5;
+        nctx.stroke();
+      }
+
       // Readability guard — darken the center column where the wordmark,
       // tagline and CTAs live, then vignette the edges for cinematic focus.
       const guard = nctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, m * 0.42);

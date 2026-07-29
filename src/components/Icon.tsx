@@ -147,8 +147,8 @@ function sanitizeLogo(svg: string): string {
   out = out.replace(/\sclass="[^"]*"/g, '');
   out = out.replace(/#020203|#020202|#040504|#070A07|#0B0E0A|#080808|#090706|#070605|#0A0807|#0A0505|#070404|#030202|#070505/gi, 'currentColor');
   out = out.replace(/(stroke|fill)="#000000"/gi, '$1="currentColor"');
-  // crop tight to the mark
-  out = out.replace(/viewBox="[^"]+"/, 'viewBox="305 195 215 205"');
+  // Include the full mark with padding so outer ring/strokes are never clipped
+  out = out.replace(/viewBox="[^"]+"/, 'viewBox="280 170 265 255"');
   out = out.replace(/<svg([^>]*)\swidth="[^"]*"/, '<svg$1');
   out = out.replace(/<svg([^>]*)\sheight="[^"]*"/, '<svg$1');
   out = out.replace(/<svg/, '<svg fill="currentColor" stroke="currentColor" preserveAspectRatio="xMidYMid meet"');
