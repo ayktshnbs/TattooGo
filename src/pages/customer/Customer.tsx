@@ -9,7 +9,7 @@ import { useAuth } from '../../auth/AuthContext';
 import { useReveal } from '../../hooks/useReveal';
 import { STYLES, CITIES, PLACEMENTS, INK_COLORS, taxonomyLabel, styleLabel } from '../../data/mock';
 import { fileToUpload, fetchUploads, UPLOADS_EVENT } from '../../data/uploads';
-import type { TattooDesign } from '../../data/types';
+import { DesignCard, DiscoverySection, PopularStyleGrid, RecommendedArtists } from './Feed';
 import {
   dashboard, requests, offers, messages, reviews, notifications, auth as authApi,
   type ApiRequest, type ApiOffer, type ApiMessage, type CustomerDashboard,
@@ -93,115 +93,6 @@ function OfferRowCard({ o, lang, onAct, busy }: { o: ApiOffer; lang: string; onA
   );
 }
 
-function formatPrice(price?: number) {
-  return typeof price === 'number' && Number.isFinite(price) ? `₺${price.toLocaleString()}` : null;
-}
-
-function designImage(design: TattooDesign) {
-  return design.imageUrl ?? design.image ?? '';
-}
-
-function DesignCard({ design, compact }: { design: TattooDesign; compact?: boolean }) {
-  const { lang } = useLang();
-  const price = formatPrice(design.price);
-  const src = designImage(design);
-  return (
-    <article className="card card-lift col" style={{ overflow: 'hidden', breakInside: 'avoid', marginBottom: compact ? 18 : 24 }}>
-      {src ? (
-        <img
-          src={src}
-          alt={design.title}
-          loading="lazy"
-          style={{ width: '100%', aspectRatio: String(design.imageRatio || 0.78), objectFit: 'cover', display: 'block', background: 'var(--paper-warm)' }}
-        />
-      ) : (
-        <div className="ph" style={{ aspectRatio: String(design.imageRatio || 0.78) }} />
-      )}
-      <div className="card-pad col gap-2" style={{ padding: compact ? 16 : 20 }}>
-        <div className="row between center gap-3">
-          <span className="mono text-muted" style={{ fontSize: 10 }}>{styleLabel(design.style, lang as 'en' | 'tr')}</span>
-          <button className="mono" aria-label={lang === 'tr' ? 'Kaydet' : 'Save'} style={{ color: design.isSaved ? 'var(--accent)' : 'var(--muted)', fontSize: 12 }}>
-            {design.isSaved ? 'Saved' : 'Save'}
-          </button>
-        </div>
-        <h3 className="display" style={{ fontSize: compact ? 18 : 22, margin: 0 }}>{design.title}</h3>
-        <span className="mono text-muted" style={{ fontSize: 10 }}>
-          {design.artistName}{design.studioName ? ` · ${design.studioName}` : ''}{design.city ? ` · ${design.city}` : ''}
-        </span>
-        <div className="row between center gap-3" style={{ marginTop: 8 }}>
-          <span className="mono text-muted" style={{ fontSize: 10 }}>
-            {price ? `${lang === 'tr' ? 'Başlangıç' : 'From'} ${price}` : `${design.likes.toLocaleString()} likes`}
-          </span>
-          <Link to="/designs" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Detaylar' : 'View details'}</Link>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function DiscoverySection({ num, title, action, children }: { num: string; title: string; action?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section style={{ marginTop: 44 }}>
-      <div className="row between center" style={{ borderBottom: '1px solid var(--hairline)', paddingBottom: 12, marginBottom: 20, gap: 16 }}>
-        <span className="mono text-muted">{num} · {title}</span>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function PopularStyleGrid({ designs }: { designs: TattooDesign[] }) {
-  const { lang } = useLang();
-  const counts = Object.values(designs.reduce<Record<string, { style: string; count: number }>>((acc, d) => {
-    const key = String(d.style);
-    acc[key] = acc[key] ?? { style: key, count: 0 };
-    acc[key].count += 1;
-    return acc;
-  }, {})).sort((a, b) => b.count - a.count).slice(0, 6);
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 1, border: '1px solid var(--hairline)' }}>
-      {counts.map((item, i) => (
-        <Link key={item.style} to="/designs" className="col gap-2" style={{ padding: 18, minHeight: 128, background: i % 2 ? 'var(--paper)' : 'var(--paper-warm)', justifyContent: 'space-between' }}>
-          <span className="mono text-muted">{String(i + 1).padStart(2, '0')}</span>
-          <span className="display" style={{ fontSize: 22 }}>{styleLabel(item.style, lang as 'en' | 'tr')}</span>
-          <span className="mono text-muted" style={{ fontSize: 10 }}>{item.count} {lang === 'tr' ? 'tasarım' : 'designs'}</span>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function RecommendedArtists({ designs }: { designs: TattooDesign[] }) {
-  const { lang } = useLang();
-  const artists = Object.values(designs.reduce<Record<string, { id: string; name: string; studio?: string; city?: string; styles: Set<string>; count: number; latest?: string }>>((acc, d) => {
-    const id = d.artistId || d.artistName;
-    acc[id] = acc[id] ?? { id, name: d.artistName, studio: d.studioName, city: d.city, styles: new Set(), count: 0 };
-    acc[id].count += 1;
-    acc[id].styles.add(String(d.style));
-    acc[id].latest = acc[id].latest ?? designImage(d);
-    return acc;
-  }, {})).sort((a, b) => b.count - a.count).slice(0, 4);
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
-      {artists.map(a => (
-        <Link key={a.id} to={`/artists/${a.id}`} className="card card-pad card-lift row gap-3 center">
-          {a.latest ? (
-            <img src={a.latest} alt="" loading="lazy" style={{ width: 62, height: 62, objectFit: 'cover', flexShrink: 0 }} />
-          ) : (
-            <span style={{ width: 62, height: 62, background: 'var(--paper-warm)', border: '1px solid var(--hairline)', flexShrink: 0 }} />
-          )}
-          <span className="col gap-1" style={{ minWidth: 0 }}>
-            <strong style={{ fontSize: 15 }}>{a.name}</strong>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>{a.studio ?? (lang === 'tr' ? 'Sanatçı' : 'Artist')}{a.city ? ` · ${a.city}` : ''}</span>
-            <span className="mono text-muted" style={{ fontSize: 10 }}>{Array.from(a.styles).slice(0, 2).map(s => styleLabel(s, lang as 'en' | 'tr')).join(' · ')} · {a.count}</span>
-          </span>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
 /* ---------- Home ---------- */
 export function CustomerHome() {
   useReveal();
@@ -218,9 +109,9 @@ export function CustomerHome() {
   }, [reload]);
 
   const designs = (data ?? []).filter(d => d.status !== 'pending');
-  const featured = [...designs].sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0)).slice(0, 6);
-  const recent = [...designs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, 6);
-  const saved = designs.filter(d => d.isSaved).slice(0, 4);
+  const byNewest = [...designs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  const featured = byNewest.slice(0, 6);
+  const recent = byNewest.slice(6, 12);
 
   return (
     <DashboardLayout
@@ -263,24 +154,13 @@ export function CustomerHome() {
                 <RecommendedArtists designs={designs} />
               </DiscoverySection>
 
-              <DiscoverySection num="04" title={lang === 'tr' ? 'Yeni eklenenler' : 'Recently Added'}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
-                  {recent.map(d => <DesignCard key={d.id} design={d} compact />)}
-                </div>
-              </DiscoverySection>
-
-              <DiscoverySection num="05" title={lang === 'tr' ? 'Kaydedilen ilhamlar' : 'Saved Inspirations'}>
-                {saved.length === 0 ? (
-                  <div className="card card-pad row between center wrap" style={{ gap: 16 }}>
-                    <span className="text-muted">{lang === 'tr' ? 'Kaydettiğiniz dövme tasarımları burada toplanacak.' : 'Tattoo designs you save will collect here.'}</span>
-                    <Link to="/designs" className="btn btn-sm btn-ghost">{lang === 'tr' ? 'Tasarımları keşfet' : 'Browse designs'}</Link>
-                  </div>
-                ) : (
+              {recent.length > 0 && (
+                <DiscoverySection num="04" title={lang === 'tr' ? 'Daha fazla çalışma' : 'More work'}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 18 }}>
-                    {saved.map(d => <DesignCard key={d.id} design={d} compact />)}
+                    {recent.map(d => <DesignCard key={d.id} design={d} compact />)}
                   </div>
-                )}
-              </DiscoverySection>
+                </DiscoverySection>
+              )}
             </>
           )}
         </>

@@ -503,47 +503,106 @@ export async function offerExistsBetween(userA: string, userB: string): Promise<
   return offers.some(o => (o.customerId === userA && o.artistId === userB) || (o.customerId === userB && o.artistId === userA));
 }
 
-/** @returns null on duplicate (request_id, artist_id) */
-export async function createOffer(o: OfferRow): Promise<OfferRow | null> {
+export interface NewOfferInput {
+  id: string; requestId: string; artistId: string; artistName: string;
+  price: number; message: string; appointmentAt?: string; createdAt: string; ts: number;
+}
+export type CreateOfferOutcome =
+  | { ok: true; offer: OfferRow }
+  | { ok: false; reason: 'duplicate' | 'request-closed' };
+
+/**
+ * Atomic create: the offer is inserted only if the request is still `open`,
+ * inside the INSERT itself (no check-then-insert). `FOR UPDATE` on the request
+ * row makes a concurrent accept/cancel serialize: if it commits first, the
+ * re-checked `status = 'open'` fails and nothing is inserted. Request-derived
+ * columns (title, customer) are copied from the locked row, never from the
+ * client. UNIQUE (request_id, artist_id) still dedupes.
+ */
+export async function createOffer(o: NewOfferInput): Promise<CreateOfferOutcome> {
   if (usePg) {
     try {
-      await sql`INSERT INTO offers (id, request_id, request_title, artist_id, artist_name, customer_id, customer_name, price, message, appointment_at, status, created_at, ts)
-        VALUES (${o.id}, ${o.requestId}, ${o.requestTitle}, ${o.artistId}, ${o.artistName}, ${o.customerId}, ${o.customerName}, ${o.price}, ${o.message}, ${o.appointmentAt ?? null}, ${o.status}, ${o.createdAt}, ${o.ts})`;
-      return o;
+      const rows = await sql`WITH r AS (
+          SELECT id, title, customer_id, customer_name FROM requests
+          WHERE id = ${o.requestId} AND status = 'open'
+          FOR UPDATE
+        )
+        INSERT INTO offers (id, request_id, request_title, artist_id, artist_name, customer_id, customer_name, price, message, appointment_at, status, created_at, ts)
+        SELECT ${o.id}, r.id, r.title, ${o.artistId}, ${o.artistName}, r.customer_id, r.customer_name,
+               ${o.price}, ${o.message}, ${o.appointmentAt ?? null}, 'sent', ${o.createdAt}, ${o.ts}
+        FROM r
+        RETURNING *`;
+      if (!rows[0]) return { ok: false, reason: 'request-closed' };
+      return { ok: true, offer: mapOffer(rows[0]) };
     } catch (err) {
-      if (err instanceof Error && /unique|duplicate/i.test(err.message)) return null;
+      if (err instanceof Error && /unique|duplicate/i.test(err.message)) return { ok: false, reason: 'duplicate' };
       throw err;
     }
   }
+  const requests = await readCollection<RequestRow>('requests');
+  const r = requests.find(x => x.id === o.requestId);
+  if (!r || r.status !== 'open') return { ok: false, reason: 'request-closed' };
   const offers = await readCollection<OfferRow>('offers');
-  if (offers.some(x => x.requestId === o.requestId && x.artistId === o.artistId)) return null;
-  await writeCollection('offers', [o, ...offers]);
-  return o;
+  if (offers.some(x => x.requestId === o.requestId && x.artistId === o.artistId)) return { ok: false, reason: 'duplicate' };
+  const row: OfferRow = {
+    id: o.id, requestId: r.id, requestTitle: r.title, artistId: o.artistId, artistName: o.artistName,
+    customerId: r.customerId, customerName: r.customerName, price: o.price, message: o.message,
+    appointmentAt: o.appointmentAt, status: 'sent', createdAt: o.createdAt, ts: o.ts,
+  };
+  await writeCollection('offers', [row, ...offers]);
+  return { ok: true, offer: row };
 }
 
-/** Atomic accept: offer → accepted AND request → booked in one statement. */
-export async function acceptOffer(offerId: string, customerId: string): Promise<OfferRow | null> {
+export interface AcceptOutcome {
+  offer: OfferRow;
+  /** Artists whose sibling `sent` offers were auto-rejected by this accept. */
+  rejectedArtistIds: string[];
+}
+
+/**
+ * Atomic accept. The REQUEST row is the serialization point: it is booked only
+ * while still `open` (row lock + re-check under READ COMMITTED), the offer is
+ * accepted only if that booking happened, and every other `sent` offer on the
+ * request is rejected — all in one statement. A second accept, or an accept on
+ * a cancelled/booked/completed request, matches nothing and returns null.
+ */
+export async function acceptOffer(offerId: string, customerId: string): Promise<AcceptOutcome | null> {
   if (usePg) {
-    const rows = await sql`WITH o AS (
+    const rows = await sql`WITH r AS (
+        UPDATE requests SET status = 'booked'
+        WHERE id = (SELECT request_id FROM offers
+                    WHERE id = ${offerId} AND customer_id = ${customerId} AND status = 'sent')
+          AND status = 'open'
+        RETURNING id
+      ), o AS (
         UPDATE offers SET status = 'accepted'
         WHERE id = ${offerId} AND customer_id = ${customerId} AND status = 'sent'
+          AND request_id IN (SELECT id FROM r)
         RETURNING *
-      ), r AS (
-        UPDATE requests SET status = 'booked'
-        WHERE id IN (SELECT request_id FROM o) AND status = 'open'
+      ), s AS (
+        UPDATE offers SET status = 'rejected'
+        WHERE request_id IN (SELECT id FROM r) AND id <> ${offerId} AND status = 'sent'
+        RETURNING artist_id
       )
-      SELECT * FROM o`;
-    return rows[0] ? mapOffer(rows[0]) : null;
+      SELECT o.*, (SELECT COALESCE(array_agg(artist_id), '{}') FROM s) AS rejected_artist_ids FROM o`;
+    if (!rows[0]) return null;
+    return { offer: mapOffer(rows[0]), rejectedArtistIds: (rows[0].rejected_artist_ids as string[]) ?? [] };
   }
   const offers = await readCollection<OfferRow>('offers');
   const o = offers.find(x => x.id === offerId);
   if (!o || o.customerId !== customerId || o.status !== 'sent') return null;
-  o.status = 'accepted';
-  await writeCollection('offers', offers);
   const requests = await readCollection<RequestRow>('requests');
   const r = requests.find(x => x.id === o.requestId);
-  if (r && r.status === 'open') { r.status = 'booked'; await writeCollection('requests', requests); }
-  return o;
+  if (!r || r.status !== 'open') return null;
+  r.status = 'booked';
+  o.status = 'accepted';
+  const rejectedArtistIds: string[] = [];
+  for (const x of offers) {
+    if (x.requestId === o.requestId && x.id !== o.id && x.status === 'sent') { x.status = 'rejected'; rejectedArtistIds.push(x.artistId); }
+  }
+  await writeCollection('offers', offers);
+  await writeCollection('requests', requests);
+  return { offer: o, rejectedArtistIds };
 }
 
 export async function rejectOffer(offerId: string, customerId: string): Promise<OfferRow | null> {

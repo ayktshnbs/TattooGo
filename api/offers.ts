@@ -54,27 +54,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'message required (max 2000 chars)' });
       }
 
-      const request = await getRequestById(requestId);
-      if (!request) return res.status(404).json({ error: 'request not found' });
-      if (request.status !== 'open') return res.status(409).json({ error: 'request is no longer open' });
-
-      const row: OfferRow = {
+      // The request's openness is enforced INSIDE the insert (repo.createOffer),
+      // not by a pre-check — a concurrent cancel/accept can't race past it.
+      const created = await createOffer({
         id: newId('off'),
         requestId,
-        requestTitle: request.title,
         artistId: user.id,
         artistName: user.name,
-        customerId: request.customerId,
-        customerName: request.customerName,
         price: Math.round(priceNum),
         message: message.trim(),
         appointmentAt: typeof appointmentAt === 'string' && appointmentAt.trim() ? appointmentAt.trim().slice(0, 40) : undefined,
-        status: 'sent',
         createdAt: today(),
         ts: Date.now(),
-      };
-      const created = await createOffer(row);
-      if (!created) return res.status(409).json({ error: 'you already sent an offer on this request' });
+      });
+      if (!created.ok) {
+        if (created.reason === 'duplicate') return res.status(409).json({ error: 'you already sent an offer on this request' });
+        const exists = await getRequestById(requestId);
+        if (!exists) return res.status(404).json({ error: 'request not found' });
+        return res.status(409).json({ error: 'request is no longer open' });
+      }
+      const row = created.offer;
 
       // Post-write side effects — best-effort, never break the offer.
       await pushNotification(row.customerId, 'offer', row.artistName, `New offer on “${row.requestTitle}” — ₺${row.price.toLocaleString()}`);
@@ -91,7 +90,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       let updated: OfferRow | null = null;
-      if (action === 'accept') updated = await acceptOffer(id, user.id);
+      let rejectedSiblings: string[] = [];
+      if (action === 'accept') {
+        const out = await acceptOffer(id, user.id);
+        if (out) { updated = out.offer; rejectedSiblings = out.rejectedArtistIds; }
+      }
       else if (action === 'reject') updated = await rejectOffer(id, user.id);
       else updated = await completeOffer(id, user.id);
 
@@ -101,17 +104,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (!offer) return res.status(404).json({ error: 'not found' });
         const owner = action === 'complete' ? offer.artistId : offer.customerId;
         if (owner !== user.id) return res.status(403).json({ error: 'forbidden' });
+        if (action === 'accept' && offer.status === 'sent') {
+          // Offer is still pending, so the block came from the REQUEST side:
+          // it is no longer open (already booked via another offer, cancelled,
+          // or completed). Never accept into a closed request.
+          const request = await getRequestById(offer.requestId);
+          return res.status(409).json({ error: `request is ${request?.status ?? 'no longer open'} — offer cannot be accepted` });
+        }
         return res.status(409).json({
           error: action === 'complete' ? 'only accepted offers can be completed' : `offer already ${offer.status}`,
         });
       }
 
-      // Post-write side effects.
+      // Post-write side effects. Exactly one acceptance email per accepted
+      // offer; sibling artists whose offers were auto-rejected get an in-app
+      // notification (no email storm on a busy brief).
       if (action === 'accept' || action === 'reject') {
         await pushNotification(updated.artistId, updated.status, updated.customerName,
           `“${updated.requestTitle}” — offer ${updated.status}`);
         const artist = await getUserById(updated.artistId);
         if (artist) await offerStatusEmail(artist.email, artist.name, updated.requestTitle, updated.status as 'accepted' | 'rejected');
+        for (const artistId of rejectedSiblings) {
+          await pushNotification(artistId, 'rejected', updated.customerName,
+            `“${updated.requestTitle}” — the customer chose another offer`);
+        }
       } else {
         await pushNotification(updated.customerId, 'completed', updated.artistName,
           `“${updated.requestTitle}” marked completed — you can leave a review`);

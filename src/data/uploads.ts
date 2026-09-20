@@ -1,13 +1,15 @@
-import type { TattooDesign, TattooStyle } from './types';
+import type { ApiPortfolioItem } from '../lib/api';
 
 /**
- * Community uploads — client for the /api/uploads backend.
+ * Public portfolio feed — client for GET /api/uploads.
  *
- * Artists (studio panel) and customers (customer panel) publish their tattoo
- * photos; the landing feed merges them on top of the seeded designs. Images
- * live in Vercel Blob (CDN-served); metadata lives in a blob-hosted index the
- * API maintains. When the API is unreachable (vite dev server, offline), both
- * reads and writes fall back to localStorage so the flow keeps working.
+ * Returns the API's own row shape (`ApiPortfolioItem`): there is NO `likes`,
+ * `price`, `isSaved`, or `city` on these rows, and consumers must not assume
+ * them (a previous `likes.toLocaleString()` crashed the customer dashboard).
+ * A small localStorage cache gives the landing feed an instant first paint and
+ * a read-only fallback when the API is unreachable. Publishing goes through
+ * `portfolio.publish()` in lib/api — the offline "localAdd" path was dead code
+ * and has been removed.
  */
 
 const KEY = 'tg.uploads';
@@ -15,7 +17,7 @@ export const UPLOADS_EVENT = 'tg:uploads';
 const API = '/api/uploads';
 
 /** Synchronous local cache — used for instant first paint and as fallback. */
-export function getUploads(): TattooDesign[] {
+export function getUploads(): ApiPortfolioItem[] {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
@@ -26,14 +28,14 @@ export function getUploads(): TattooDesign[] {
   }
 }
 
-function cacheUploads(list: TattooDesign[]): void {
+function cacheUploads(list: ApiPortfolioItem[]): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(list.slice(0, 24)));
   } catch { /* quota — cache is best-effort */ }
 }
 
-/** Fetch the shared community feed; falls back to the local cache. */
-export async function fetchUploads(): Promise<TattooDesign[]> {
+/** Fetch the shared public feed; falls back to the local cache. */
+export async function fetchUploads(): Promise<ApiPortfolioItem[]> {
   try {
     const res = await fetch(API, { headers: { Accept: 'application/json' } });
     if (!res.ok) throw new Error(String(res.status));
@@ -46,74 +48,10 @@ export async function fetchUploads(): Promise<TattooDesign[]> {
   }
 }
 
-export interface UploadInput {
-  title: string;
-  artistName: string;
-  style: TattooStyle;
-  tags: string[];
-  imageUrl: string; // JPEG data URL from fileToUpload()
-  imageRatio: number;
-  city?: string;
-  price?: number;
-  source: 'artist'; // landing-feed publishing is artist-only
-}
-
-function localAdd(input: UploadInput): TattooDesign | null {
-  const design: TattooDesign = {
-    id: `u${Date.now().toString(36)}`,
-    artistId: 'community',
-    likes: 0,
-    views: 0,
-    swatch: 'sw-1', // unused fallback — imageUrl takes precedence
-    createdAt: new Date().toISOString().slice(0, 10),
-    ...input,
-  };
-  try {
-    localStorage.setItem(KEY, JSON.stringify([design, ...getUploads()]));
-  } catch {
-    // Quota exceeded (data URLs are heavy) — drop the oldest uploads and retry
-    try {
-      localStorage.setItem(KEY, JSON.stringify([design, ...getUploads().slice(0, 11)]));
-    } catch {
-      return null;
-    }
-  }
-  return design;
-}
-
-/** Publish to the shared feed; falls back to localStorage when offline. */
-export async function addUpload(input: UploadInput): Promise<TattooDesign | null> {
-  let design: TattooDesign | null = null;
-  try {
-    const res = await fetch(API, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: input.title,
-        artistName: input.artistName,
-        style: input.style,
-        tags: input.tags,
-        imageData: input.imageUrl,
-        imageRatio: input.imageRatio,
-        source: input.source,
-      }),
-    });
-    if (!res.ok) throw new Error(String(res.status));
-    design = await res.json();
-    // Pending entries are awaiting moderation — they must not enter the
-    // local feed cache, or the submitter would see them as already live.
-    if (design && design.status !== 'pending') cacheUploads([design, ...getUploads()]);
-  } catch {
-    design = localAdd(input);
-  }
-  if (design) window.dispatchEvent(new Event(UPLOADS_EVENT));
-  return design;
-}
-
 /**
  * Read a picked file, downscale it (max 1080px on the long edge) and return a
- * JPEG data URL plus its aspect ratio. Keeps localStorage small and strips
- * EXIF in the process.
+ * JPEG data URL plus its aspect ratio. Keeps payloads small and strips EXIF
+ * in the process.
  */
 export function fileToUpload(file: File): Promise<{ dataUrl: string; ratio: number }> {
   return new Promise((resolve, reject) => {

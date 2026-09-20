@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { LangProvider } from './i18n/LangContext';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireCustomer, RequireArtist, RequireAuth, RequireAdmin } from './auth/Guard';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 import { Landing } from './pages/Landing';
 import { Account } from './pages/Account';
@@ -31,6 +32,7 @@ export default function App() {
       <AuthProvider>
         <BrowserRouter>
           <ScrollToTop />
+          <ErrorBoundary>
           <Routes>
             <Route path="/" element={<Landing />} />
 
@@ -93,6 +95,7 @@ export default function App() {
 
             <Route path="*" element={<Landing />} />
           </Routes>
+          </ErrorBoundary>
         </BrowserRouter>
       </AuthProvider>
     </LangProvider>
