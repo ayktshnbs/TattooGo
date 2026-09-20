@@ -1,16 +1,15 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { del } from '@vercel/blob';
 import { requireAdmin } from './_lib/auth.js';
+import { adminListReportedPortfolio } from './_lib/repo.js';
 import {
-  adminHidePortfolioItem, adminUnhidePortfolioItem, adminDeletePortfolioItem,
-  adminMarkReportsReviewed, adminListReportedPortfolio,
-} from './_lib/repo.js';
-import {
-  recordAudit, listAuditLog, adminSummary,
+  listAuditLog, adminSummary, paging,
   adminListUsers, adminGetUser, adminSetProviderStatus,
   adminDeactivateUser, adminReactivateUser,
   adminListPortfolio, adminListRequests, adminListOffers,
   adminListReviews, adminHideReview, adminUnhideReview,
+  adminHidePortfolioItem, adminUnhidePortfolioItem, adminDeletePortfolioItem,
+  adminMarkReportsReviewed,
   type UserFilter,
 } from './_lib/admin.js';
 
@@ -18,7 +17,9 @@ import {
  * MVP admin panel — single action dispatcher.
  *
  *   GET  /api/admin?action=<read-action>   → summary / list-* / user-detail / audit-log
- *   POST /api/admin {action, ...}          → mutating actions (all audit-logged)
+ *                                            (list-* and audit-log take ?limit=&offset=)
+ *   POST /api/admin {action, ...}          → mutating actions — each is ONE SQL
+ *                                            statement that also writes its audit row
  *
  * Every call runs through requireAdmin, which enforces:
  *   - anonymous → 401
@@ -47,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const filter = String(req.query.filter ?? 'all');
         if (!USER_FILTERS.has(filter as UserFilter)) return res.status(400).json({ error: 'invalid filter' });
         const q = typeof req.query.q === 'string' && req.query.q.trim() ? req.query.q.trim() : null;
-        return res.status(200).json(await adminListUsers(filter as UserFilter, q));
+        return res.status(200).json(await adminListUsers(filter as UserFilter, q, paging(req.query)));
       }
       if (action === 'user-detail') {
         const id = String(req.query.id ?? '');
@@ -58,18 +59,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (action === 'list-portfolio') {
         const status = String(req.query.status ?? 'all');
         if (!['pending', 'approved', 'all'].includes(status)) return res.status(400).json({ error: 'invalid status' });
-        return res.status(200).json(await adminListPortfolio(status as 'pending' | 'approved' | 'all'));
+        return res.status(200).json(await adminListPortfolio(status as 'pending' | 'approved' | 'all', paging(req.query)));
       }
       if (action === 'list-reported-portfolio') {
         return res.status(200).json(await adminListReportedPortfolio());
       }
-      if (action === 'list-requests') return res.status(200).json(await adminListRequests());
-      if (action === 'list-offers')   return res.status(200).json(await adminListOffers());
-      if (action === 'list-reviews')  return res.status(200).json(await adminListReviews());
-      if (action === 'audit-log') {
-        const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 100) || 100));
-        return res.status(200).json(await listAuditLog(limit));
-      }
+      if (action === 'list-requests') return res.status(200).json(await adminListRequests(paging(req.query)));
+      if (action === 'list-offers')   return res.status(200).json(await adminListOffers(paging(req.query)));
+      if (action === 'list-reviews')  return res.status(200).json(await adminListReviews(paging(req.query)));
+      if (action === 'audit-log')     return res.status(200).json(await listAuditLog(paging(req.query)));
       return res.status(400).json({ error: 'unknown action' });
     }
 
@@ -85,14 +83,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof id !== 'string' || !PROVIDER_STATUSES.has(status)) {
         return res.status(400).json({ error: 'id + valid status required' });
       }
-      const out = await adminSetProviderStatus(id, status);
-      if (!out.ok) return res.status(404).json({ error: 'target has no provider profile or is deactivated' });
-      await recordAudit({
-        adminUserId: admin.id, action: 'set-provider-status',
-        targetType: 'user', targetId: id,
-        previousValue: { providerStatus: out.previous },
-        newValue: { providerStatus: status },
-      });
+      const out = await adminSetProviderStatus(admin.id, id, status);
+      if (!out.ok) return res.status(409).json({ error: 'target has no provider profile, is deactivated, or already has that status' });
       return res.status(200).json({ ok: true });
     }
 
@@ -100,84 +92,64 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
       if (id === admin.id) return res.status(400).json({ error: 'cannot deactivate your own admin account' });
-      const out = await adminDeactivateUser(id);
+      const out = await adminDeactivateUser(admin.id, id);
       if (!out.ok) return res.status(409).json({ error: 'user is already deactivated or does not exist' });
-      await recordAudit({
-        adminUserId: admin.id, action: 'deactivate-user',
-        targetType: 'user', targetId: id,
-        previousValue: out.previous, newValue: { deactivatedAt: 'now' },
-      });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'reactivate-user') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const out = await adminReactivateUser(id);
+      const out = await adminReactivateUser(admin.id, id);
       if (!out.ok) return res.status(409).json({ error: 'user is not deactivated' });
-      await recordAudit({
-        adminUserId: admin.id, action: 'reactivate-user',
-        targetType: 'user', targetId: id,
-      });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'hide-portfolio-item') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const out = await adminHidePortfolioItem(id, admin.id);
+      const out = await adminHidePortfolioItem(admin.id, id);
       if (!out.ok) return res.status(409).json({ error: 'not found or already hidden' });
-      await adminMarkReportsReviewed(id, admin.id);
-      await recordAudit({ adminUserId: admin.id, action, targetType: 'portfolio_item', targetId: id });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'unhide-portfolio-item') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const out = await adminUnhidePortfolioItem(id);
+      const out = await adminUnhidePortfolioItem(admin.id, id);
       if (!out.ok) return res.status(409).json({ error: 'not found or not hidden' });
-      await recordAudit({ adminUserId: admin.id, action, targetType: 'portfolio_item', targetId: id });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'delete-portfolio-item') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const out = await adminDeletePortfolioItem(id);
+      const out = await adminDeletePortfolioItem(admin.id, id);
       if (!out.ok) return res.status(404).json({ error: 'not found' });
       if (out.imageUrl) { try { await del(out.imageUrl); } catch { /* orphan is harmless */ } }
-      await recordAudit({ adminUserId: admin.id, action, targetType: 'portfolio_item', targetId: id });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'mark-reports-reviewed') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const n = await adminMarkReportsReviewed(id, admin.id);
-      await recordAudit({
-        adminUserId: admin.id, action,
-        targetType: 'portfolio_item', targetId: id,
-        newValue: { reviewed: n },
-      });
-      return res.status(200).json({ ok: true, reviewed: n });
+      const out = await adminMarkReportsReviewed(admin.id, id);
+      return res.status(200).json({ ok: true, reviewed: out.reviewed });
     }
 
     if (action === 'hide-review') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const out = await adminHideReview(id, admin.id);
+      const out = await adminHideReview(admin.id, id);
       if (!out.ok) return res.status(409).json({ error: 'review not found or already hidden' });
-      await recordAudit({ adminUserId: admin.id, action: 'hide-review', targetType: 'review', targetId: id });
       return res.status(200).json({ ok: true });
     }
 
     if (action === 'unhide-review') {
       const { id } = req.body ?? {};
       if (typeof id !== 'string') return res.status(400).json({ error: 'id required' });
-      const out = await adminUnhideReview(id);
+      const out = await adminUnhideReview(admin.id, id);
       if (!out.ok) return res.status(409).json({ error: 'review not found or not hidden' });
-      await recordAudit({ adminUserId: admin.id, action: 'unhide-review', targetType: 'review', targetId: id });
       return res.status(200).json({ ok: true });
     }
 

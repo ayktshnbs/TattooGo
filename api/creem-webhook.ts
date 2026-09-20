@@ -1,14 +1,18 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifySignature, parseEvent } from './_lib/creem.js';
-import { recordWebhookEvent, upsertSubscriptionFromWebhook } from './_lib/repo.js';
+import { applyWebhookEvent } from './_lib/repo.js';
 
 /**
  * Creem webhook — the ONLY writer of premium status.
  *
  * Security: verifies the HMAC signature over the RAW body (body parsing is
- * disabled so the bytes match), rejects invalid signatures, and is idempotent
- * (a repeat event id is a no-op). Premium is never granted from a success
- * redirect — only from a verified event here.
+ * disabled so the bytes match), rejects invalid signatures, checks the event
+ * names OUR product, and is idempotent (a repeat event id is a no-op) with
+ * the ledger write and the state change committed together — a failed apply
+ * rolls the ledger back so Creem's retry is processed, not dropped. Events
+ * older than the last applied one are ignored (out-of-order delivery).
+ * Premium is never granted from a success redirect — only from a verified
+ * event here. Payments stay disabled until the CREEM_* env vars exist.
  */
 export const config = { api: { bodyParser: false } };
 
@@ -38,14 +42,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ev = parseEvent(body);
     if (!ev.id) return res.status(400).json({ error: 'missing event id' });
 
-    // Idempotency: only the first delivery of an event id is processed.
-    const fresh = await recordWebhookEvent(ev.id);
-    if (!fresh) return res.status(200).json({ ok: true, duplicate: true });
+    // Events we don't act on (unknown status / no user mapping / another
+    // product) are acked so Creem stops retrying; the reason is logged only.
+    if (ev.ignored || !ev.userId || !ev.status) {
+      console.log(`creem webhook ignored: ${ev.reason ?? 'unmapped'}`);
+      return res.status(200).json({ ok: true, ignored: true });
+    }
 
-    // Events we don't act on (unknown status / no user mapping) are acked.
-    if (ev.ignored || !ev.userId || !ev.status) return res.status(200).json({ ok: true, ignored: true });
-
-    await upsertSubscriptionFromWebhook({
+    // Ledger + upsert in one transaction; a repeat event id is a no-op and a
+    // stale (older) event never overwrites newer state.
+    const outcome = await applyWebhookEvent(ev.id, {
       userId: ev.userId,
       providerCustomerId: ev.providerCustomerId,
       providerSubscriptionId: ev.providerSubscriptionId,
@@ -53,8 +59,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       currentPeriodStart: ev.currentPeriodStart,
       currentPeriodEnd: ev.currentPeriodEnd,
       cancelAtPeriodEnd: ev.cancelAtPeriodEnd,
+      eventAt: ev.eventAt,
     });
-
+    if (outcome === 'duplicate') return res.status(200).json({ ok: true, duplicate: true });
+    if (outcome === 'stale') return res.status(200).json({ ok: true, stale: true });
     return res.status(200).json({ ok: true });
   } catch (err) {
     // Never leak internals; log without secrets/recipients/bodies.

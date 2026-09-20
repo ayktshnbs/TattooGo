@@ -16,31 +16,32 @@ type Row = Record<string, unknown>;
 
 /* --------------------------------- audit --------------------------------- */
 
-export async function recordAudit(input: {
-  adminUserId: string;
-  action: string;
-  targetType?: string;
-  targetId?: string;
-  previousValue?: unknown;
-  newValue?: unknown;
-}): Promise<void> {
-  if (!usePg) return;
-  // JSON snippets, capped so a stray full-row never lands in the log.
-  const clip = (v: unknown) => {
-    if (v === undefined || v === null) return null;
-    const s = typeof v === 'string' ? v : JSON.stringify(v);
-    return s.length > 500 ? s.slice(0, 500) : s;
-  };
-  await sql`INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, previous_value, new_value, created_at)
-    VALUES (${newId('adt')}, ${input.adminUserId}, ${input.action},
-            ${input.targetType ?? null}, ${input.targetId ?? null},
-            ${clip(input.previousValue)}, ${clip(input.newValue)}, ${Date.now()})`;
+/**
+ * Every mutating admin action below is ONE statement: a data-modifying CTE
+ * performs the change and the audit row is inserted FROM its RETURNING set.
+ * So the audit row lands iff the change did (atomic), and a no-op (already
+ * hidden, not a provider, …) writes no audit row at all.
+ */
+
+/** Small JSON snippet, capped so a stray full row never lands in the log. */
+const clip = (v: unknown): string | null => {
+  if (v === undefined || v === null) return null;
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return s.length > 500 ? s.slice(0, 500) : s;
+};
+
+export interface Paging { limit: number; offset: number }
+/** Clamp caller-supplied paging: 1..200 rows, offset ≥ 0. */
+export function paging(q: Record<string, unknown>): Paging {
+  const limit = Math.min(200, Math.max(1, Number(q.limit ?? 200) || 200));
+  const offset = Math.max(0, Number(q.offset ?? 0) || 0);
+  return { limit, offset };
 }
 
-export async function listAuditLog(limit = 100): Promise<Row[]> {
+export async function listAuditLog({ limit, offset }: Paging = { limit: 100, offset: 0 }): Promise<Row[]> {
   if (!usePg) return [];
   const rows = await sql`SELECT id, admin_user_id, action, target_type, target_id, previous_value, new_value, created_at
-    FROM admin_audit_log ORDER BY created_at DESC LIMIT ${limit}`;
+    FROM admin_audit_log ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(r => ({
     id: r.id, adminUserId: r.admin_user_id, action: r.action,
     targetType: r.target_type, targetId: r.target_id,
@@ -82,7 +83,7 @@ export type UserFilter =
   | 'all' | 'customers' | 'providers' | 'active' | 'pending_profile'
   | 'needs_review' | 'suspended' | 'deactivated' | 'admins';
 
-export async function adminListUsers(filter: UserFilter, q: string | null) {
+export async function adminListUsers(filter: UserFilter, q: string | null, { limit, offset }: Paging = { limit: 200, offset: 0 }) {
   if (!usePg) return [];
   const like = q ? `%${q.toLowerCase()}%` : null;
   const rows = await sql`
@@ -104,7 +105,7 @@ export async function adminListUsers(filter: UserFilter, q: string | null) {
         OR (${filter}::text = 'deactivated'     AND u.deactivated_at IS NOT NULL)
         OR (${filter}::text = 'admins'          AND u.is_admin = TRUE))
       AND (${like}::text IS NULL OR LOWER(u.email) LIKE ${like} OR LOWER(u.name) LIKE ${like})
-    ORDER BY u.created_at DESC LIMIT 200`;
+    ORDER BY u.created_at DESC, u.id LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(mapAdminUser);
 }
 
@@ -146,48 +147,70 @@ function mapAdminUser(r: Row) {
   };
 }
 
-/* Set a provider's status. Returns previous status for the audit log,
- * or the string 'no-provider' if the target has no provider profile. */
-export async function adminSetProviderStatus(userId: string, status: 'active' | 'needs_review' | 'suspended') {
+/* Set a provider's status + audit row in one statement. ok:false when the
+ * target has no provider profile, is deactivated, or already has that status
+ * (then nothing is written — no redundant audit row). */
+export async function adminSetProviderStatus(adminId: string, userId: string, status: 'active' | 'needs_review' | 'suspended') {
   if (!usePg) return { ok: false as const };
-  const rows = await sql`UPDATE users SET provider_status = ${status}
-    WHERE id = ${userId} AND provider_type IS NOT NULL AND deactivated_at IS NULL
-    RETURNING (SELECT provider_status FROM users WHERE id = ${userId}) AS previous`;
+  const rows = await sql`WITH upd AS (
+      UPDATE users SET provider_status = ${status}
+      WHERE id = ${userId} AND provider_type IS NOT NULL AND deactivated_at IS NULL
+        AND provider_status IS DISTINCT FROM ${status}
+      RETURNING id, (SELECT provider_status FROM users u2 WHERE u2.id = users.id) AS previous
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, previous_value, new_value, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'set-provider-status', 'user', upd.id,
+           json_build_object('providerStatus', upd.previous)::text, ${clip({ providerStatus: status })}, ${Date.now()}
+    FROM upd
+    RETURNING previous_value`;
   if (rows.length === 0) return { ok: false as const };
-  // The RETURNING sub-select captures the pre-update value.
-  return { ok: true as const, previous: rows[0].previous as string | null };
+  return { ok: true as const, previous: rows[0].previous_value as string };
 }
 
 /** Soft-deactivate a user (same result as their self-delete, minus Blob cleanup —
- *  admin doesn't touch Blob to avoid destructive slips). Returns prior state. */
-export async function adminDeactivateUser(userId: string) {
+ *  admin doesn't touch Blob to avoid destructive slips) + audit row, atomically.
+ *  The guard (`deactivated_at IS NULL`) is in the UPDATE itself, so two admins
+ *  clicking at once produce one change and one audit row. */
+export async function adminDeactivateUser(adminId: string, userId: string) {
   if (!usePg) return { ok: false as const };
-  const before = await sql`SELECT name, deactivated_at, provider_status FROM users WHERE id = ${userId}`;
-  if (!before[0] || before[0].deactivated_at != null) return { ok: false as const };
-  await sql`UPDATE users SET
-    deactivated_at = ${Date.now()},
-    session_epoch = session_epoch + 1,
-    provider_status = CASE WHEN provider_type IS NULL THEN NULL ELSE 'suspended' END
-    WHERE id = ${userId}`;
-  return { ok: true as const, previous: { deactivatedAt: null, providerStatus: before[0].provider_status } };
+  const rows = await sql`WITH upd AS (
+      UPDATE users SET
+        deactivated_at = ${Date.now()},
+        session_epoch = session_epoch + 1,
+        provider_status = CASE WHEN provider_type IS NULL THEN NULL ELSE 'suspended' END
+      WHERE id = ${userId} AND deactivated_at IS NULL
+      RETURNING id, (SELECT provider_status FROM users u2 WHERE u2.id = users.id) AS previous_status
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, previous_value, new_value, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'deactivate-user', 'user', upd.id,
+           json_build_object('deactivatedAt', NULL, 'providerStatus', upd.previous_status)::text,
+           ${clip({ deactivatedAt: 'now' })}, ${Date.now()}
+    FROM upd
+    RETURNING id`;
+  return rows.length === 1 ? { ok: true as const } : { ok: false as const };
 }
 
-export async function adminReactivateUser(userId: string) {
+export async function adminReactivateUser(adminId: string, userId: string) {
   if (!usePg) return { ok: false as const };
-  const rows = await sql`UPDATE users SET deactivated_at = NULL WHERE id = ${userId} AND deactivated_at IS NOT NULL RETURNING id`;
+  const rows = await sql`WITH upd AS (
+      UPDATE users SET deactivated_at = NULL WHERE id = ${userId} AND deactivated_at IS NOT NULL RETURNING id
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'reactivate-user', 'user', upd.id, ${Date.now()} FROM upd
+    RETURNING id`;
   return rows.length === 1 ? { ok: true as const } : { ok: false as const };
 }
 
 /* ------------------------------- portfolio ------------------------------- */
 
-export async function adminListPortfolio(status: 'pending' | 'approved' | 'all') {
+export async function adminListPortfolio(status: 'pending' | 'approved' | 'all', { limit, offset }: Paging = { limit: 200, offset: 0 }) {
   if (!usePg) return [];
   const rows = await sql`SELECT p.id, p.artist_id, p.artist_name, p.title, p.style,
            p.image_url, p.image_ratio, p.status, p.created_at, p.ts,
            u.provider_type, u.provider_status, u.deactivated_at
     FROM portfolio_items p JOIN users u ON u.id = p.artist_id
     WHERE (${status}::text = 'all' OR p.status = ${status}::text)
-    ORDER BY p.ts DESC LIMIT 200`;
+    ORDER BY p.ts DESC, p.id LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(r => ({
     id: r.id, artistId: r.artist_id, artistName: r.artist_name,
     title: r.title, style: r.style,
@@ -200,13 +223,13 @@ export async function adminListPortfolio(status: 'pending' | 'approved' | 'all')
 
 /* -------------------------------- requests -------------------------------- */
 
-export async function adminListRequests() {
+export async function adminListRequests({ limit, offset }: Paging = { limit: 200, offset: 0 }) {
   if (!usePg) return [];
   const rows = await sql`SELECT r.id, r.title, r.style, r.city, r.district,
            r.budget_min, r.budget_max, r.reference_url, r.status, r.created_at,
            r.customer_id, r.customer_name,
            (SELECT COUNT(*)::int FROM offers o WHERE o.request_id = r.id) AS offer_count
-    FROM requests r ORDER BY r.ts DESC LIMIT 200`;
+    FROM requests r ORDER BY r.ts DESC, r.id LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(r => ({
     id: r.id, title: r.title, style: r.style,
     city: r.city, district: r.district,
@@ -221,11 +244,11 @@ export async function adminListRequests() {
 
 /* --------------------------------- offers -------------------------------- */
 
-export async function adminListOffers() {
+export async function adminListOffers({ limit, offset }: Paging = { limit: 200, offset: 0 }) {
   if (!usePg) return [];
   const rows = await sql`SELECT id, request_id, artist_id, artist_name,
            customer_id, customer_name, price, status, created_at, ts
-    FROM offers ORDER BY ts DESC LIMIT 200`;
+    FROM offers ORDER BY ts DESC, id LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(r => ({
     id: r.id, requestId: r.request_id,
     artistId: r.artist_id, artistName: r.artist_name,
@@ -237,11 +260,11 @@ export async function adminListOffers() {
 
 /* -------------------------------- reviews -------------------------------- */
 
-export async function adminListReviews() {
+export async function adminListReviews({ limit, offset }: Paging = { limit: 200, offset: 0 }) {
   if (!usePg) return [];
   const rows = await sql`SELECT id, artist_id, customer_id, customer_name,
            rating, text, request_title, created_at, ts, hidden_at, hidden_by
-    FROM reviews ORDER BY ts DESC LIMIT 200`;
+    FROM reviews ORDER BY ts DESC, id LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(r => ({
     id: r.id, artistId: r.artist_id, customerId: r.customer_id,
     customerName: r.customer_name, rating: Number(r.rating), text: r.text,
@@ -251,16 +274,93 @@ export async function adminListReviews() {
   }));
 }
 
-export async function adminHideReview(reviewId: string, adminId: string) {
+export async function adminHideReview(adminId: string, reviewId: string) {
   if (!usePg) return { ok: false as const };
-  const rows = await sql`UPDATE reviews SET hidden_at = ${Date.now()}, hidden_by = ${adminId}
-    WHERE id = ${reviewId} AND hidden_at IS NULL RETURNING id`;
+  const rows = await sql`WITH upd AS (
+      UPDATE reviews SET hidden_at = ${Date.now()}, hidden_by = ${adminId}
+      WHERE id = ${reviewId} AND hidden_at IS NULL RETURNING id
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'hide-review', 'review', upd.id, ${Date.now()} FROM upd
+    RETURNING id`;
   return rows.length === 1 ? { ok: true as const } : { ok: false as const };
 }
 
-export async function adminUnhideReview(reviewId: string) {
+export async function adminUnhideReview(adminId: string, reviewId: string) {
   if (!usePg) return { ok: false as const };
-  const rows = await sql`UPDATE reviews SET hidden_at = NULL, hidden_by = NULL
-    WHERE id = ${reviewId} AND hidden_at IS NOT NULL RETURNING id`;
+  const rows = await sql`WITH upd AS (
+      UPDATE reviews SET hidden_at = NULL, hidden_by = NULL
+      WHERE id = ${reviewId} AND hidden_at IS NOT NULL RETURNING id
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'unhide-review', 'review', upd.id, ${Date.now()} FROM upd
+    RETURNING id`;
   return rows.length === 1 ? { ok: true as const } : { ok: false as const };
+}
+
+/* ------------------------- portfolio moderation ------------------------- */
+
+/** Hide + mark its pending reports reviewed + audit, in one statement. */
+export async function adminHidePortfolioItem(adminId: string, itemId: string) {
+  if (!usePg) return { ok: false as const };
+  const now = Date.now();
+  const rows = await sql`WITH upd AS (
+      UPDATE portfolio_items SET hidden_at = ${now}, hidden_by = ${adminId}
+      WHERE id = ${itemId} AND hidden_at IS NULL RETURNING id
+    ), rev AS (
+      UPDATE portfolio_reports SET reviewed_at = ${now}, reviewed_by = ${adminId}
+      WHERE item_id IN (SELECT id FROM upd) AND reviewed_at IS NULL RETURNING id
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, new_value, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'hide-portfolio-item', 'portfolio_item', upd.id,
+           json_build_object('reviewedReports', (SELECT COUNT(*) FROM rev))::text, ${now}
+    FROM upd
+    RETURNING id`;
+  return rows.length === 1 ? { ok: true as const } : { ok: false as const };
+}
+
+export async function adminUnhidePortfolioItem(adminId: string, itemId: string) {
+  if (!usePg) return { ok: false as const };
+  const rows = await sql`WITH upd AS (
+      UPDATE portfolio_items SET hidden_at = NULL, hidden_by = NULL
+      WHERE id = ${itemId} AND hidden_at IS NOT NULL RETURNING id
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'unhide-portfolio-item', 'portfolio_item', upd.id, ${Date.now()} FROM upd
+    RETURNING id`;
+  return rows.length === 1 ? { ok: true as const } : { ok: false as const };
+}
+
+/** Delete the row (reports cascade) + audit; returns the image url so the
+ *  caller can remove the Blob file AFTER the row is gone. */
+export async function adminDeletePortfolioItem(adminId: string, itemId: string) {
+  if (!usePg) return { ok: false as const, imageUrl: undefined };
+  const rows = await sql`WITH del AS (
+      DELETE FROM portfolio_items WHERE id = ${itemId} RETURNING id, image_url
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, previous_value, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'delete-portfolio-item', 'portfolio_item', del.id,
+           json_build_object('imageUrl', del.image_url)::text, ${Date.now()}
+    FROM del
+    RETURNING previous_value`;
+  if (rows.length !== 1) return { ok: false as const, imageUrl: undefined };
+  const prev = JSON.parse(String(rows[0].previous_value)) as { imageUrl?: string };
+  return { ok: true as const, imageUrl: prev.imageUrl };
+}
+
+/** Mark an item's pending reports reviewed + audit. ok:false (no audit row)
+ *  when there was nothing pending. Returns how many were marked. */
+export async function adminMarkReportsReviewed(adminId: string, itemId: string) {
+  if (!usePg) return { ok: false as const, reviewed: 0 };
+  const rows = await sql`WITH rev AS (
+      UPDATE portfolio_reports SET reviewed_at = ${Date.now()}, reviewed_by = ${adminId}
+      WHERE item_id = ${itemId} AND reviewed_at IS NULL RETURNING id
+    )
+    INSERT INTO admin_audit_log (id, admin_user_id, action, target_type, target_id, new_value, created_at)
+    SELECT ${newId('adt')}, ${adminId}, 'mark-reports-reviewed', 'portfolio_item', ${itemId},
+           json_build_object('reviewed', COUNT(*))::text, ${Date.now()}
+    FROM rev HAVING COUNT(*) > 0
+    RETURNING new_value`;
+  if (rows.length !== 1) return { ok: false as const, reviewed: 0 };
+  return { ok: true as const, reviewed: Number((JSON.parse(String(rows[0].new_value)) as { reviewed: number }).reviewed) };
 }

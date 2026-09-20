@@ -1,13 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSessionUser } from './_lib/auth.js';
-import { getSubscription, hasActivePremium } from './_lib/repo.js';
-import { createCheckout, isConfigured } from './_lib/creem.js';
+import { getSubscription, hasActivePremium, applyWebhookEvent } from './_lib/repo.js';
+import { createCheckout, fetchSubscription, isConfigured } from './_lib/creem.js';
 import { APP_URL, PREMIUM_REQUIRED } from './_lib/config.js';
+import { rateLimit, tooMany, HOUR } from './_lib/ratelimit.js';
 
 /**
  * Premium billing (artist/studio only).
  *   GET  /api/billing                     → own premium status for the dashboard
  *   POST /api/billing {action:'create-checkout'} → Creem-hosted checkout URL
+ *   POST /api/billing {action:'sync'}            → re-read own subscription from
+ *        Creem (missed-webhook recovery); same parser + ordering rules as the
+ *        webhook, rate-limited, and a no-op unless billing is configured
  *
  * Premium is granted ONLY by the verified Creem webhook — never here, never by
  * the success redirect. No card data touches this endpoint. Creem secrets stay
@@ -36,6 +40,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST') {
       const { action } = req.body ?? {};
+      if (action === 'sync') {
+        if (!isConfigured()) return res.status(503).json({ error: 'billing is not configured yet' });
+        if (tooMany(res, await rateLimit('billing:sync', user.id, 6, HOUR))) return;
+        const sub = await getSubscription(user.id);
+        if (!sub?.providerSubscriptionId) return res.status(404).json({ error: 'no subscription on file' });
+        const ev = await fetchSubscription(sub.providerSubscriptionId);
+        // The snapshot must be about THIS user — never let a fetched object re-point a row.
+        if (ev.ignored || !ev.status || ev.userId !== user.id) return res.status(409).json({ error: 'subscription snapshot did not match your account' });
+        const outcome = await applyWebhookEvent(ev.id, {
+          userId: user.id,
+          providerCustomerId: ev.providerCustomerId,
+          providerSubscriptionId: ev.providerSubscriptionId ?? sub.providerSubscriptionId,
+          status: ev.status,
+          currentPeriodStart: ev.currentPeriodStart,
+          currentPeriodEnd: ev.currentPeriodEnd,
+          cancelAtPeriodEnd: ev.cancelAtPeriodEnd,
+          eventAt: ev.eventAt,
+        });
+        return res.status(200).json({ ok: true, outcome, hasPremium: await hasActivePremium(user.id) });
+      }
       if (action !== 'create-checkout') return res.status(400).json({ error: 'unknown action' });
       if (!isConfigured()) return res.status(503).json({ error: 'billing is not configured yet' });
       // Success only returns the user to the dashboard; the PremiumCard there
