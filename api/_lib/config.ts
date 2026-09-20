@@ -20,6 +20,10 @@ export const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || process.env.MAILGUN_
 /** Regional API base, e.g. https://api.mailgun.net or https://api.eu.mailgun.net. */
 export const MAILGUN_BASE_URL = (process.env.MAILGUN_BASE_URL || 'https://api.mailgun.net').replace(/\/$/, '');
 
+/** Inbox that receives contact-form messages. Unset → the form is reported as
+ *  unavailable and the page says so instead of pretending to send. */
+export const CONTACT_EMAIL = (process.env.CONTACT_EMAIL ?? '').trim();
+
 export const DATABASE_URL = process.env.DATABASE_URL ?? '';
 
 /** Fail fast in production. Without DATABASE_URL the repo would silently fall

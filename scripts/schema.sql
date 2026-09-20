@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS offers (
                 CHECK (status IN ('sent','accepted','rejected','completed')),
   created_at    TEXT NOT NULL,
   ts            BIGINT NOT NULL,
-  UNIQUE (request_id, artist_id)                -- one offer per artist per brief
+  UNIQUE (request_id, artist_id),               -- one offer per artist per brief
+  CONSTRAINT offers_no_self_offer CHECK (artist_id <> customer_id)  -- a provider never bids on their own brief
 );
 CREATE INDEX IF NOT EXISTS offers_artist_idx   ON offers(artist_id, ts DESC);
 CREATE INDEX IF NOT EXISTS offers_customer_idx ON offers(customer_id, ts DESC);

@@ -2,10 +2,16 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { newId, type MessageRow } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
 import { listThreads, listThread, createMessage, offerExistsBetween, getUserById, pushNotification } from './_lib/repo.js';
-import { newMessageEmail } from './_lib/email.js';
+import { newMessageEmail, contactFormEmail } from './_lib/email.js';
 import { rateLimit, tooMany, HOUR } from './_lib/ratelimit.js';
+import { ipHash } from './_lib/ip.js';
+import { CONTACT_EMAIL } from './_lib/config.js';
+import { isConfigured as emailConfigured } from './_lib/email-provider.js';
 
 const MESSAGES_PER_USER_PER_HOUR = 60;
+const CONTACT_PER_IP_PER_HOUR = 3;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const contactAvailable = () => CONTACT_EMAIL.length > 0 && emailConfigured();
 
 /**
  * Direct messages between a customer and an artist.
@@ -14,10 +20,33 @@ const MESSAGES_PER_USER_PER_HOUR = 60;
  *   POST /api/messages {toUserId, text} → send (only pairs with a LIVE offer:
  *        sent / accepted / completed — a rejected offer does not keep the
  *        channel open; deactivated accounts can neither send nor receive)
+ *   GET  /api/messages?action=contact   → { available } — is the public contact
+ *        form wired to an inbox (CONTACT_EMAIL + email provider)?
+ *   POST /api/messages?action=contact {name, email, message} → deliver to the
+ *        site inbox (anonymous; validated; 3/h per IP). Co-located here
+ *        because Vercel Hobby caps the project at 12 functions.
  */
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
+    if (req.query.action === 'contact') {
+      if (req.method === 'GET') {
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(200).json({ available: contactAvailable() });
+      }
+      if (req.method !== 'POST') { res.setHeader('Allow', 'GET, POST'); return res.status(405).json({ error: 'method not allowed' }); }
+      const { name, email, message } = req.body ?? {};
+      if (typeof name !== 'string' || !name.trim() || name.trim().length > 80) return res.status(400).json({ code: 'invalid_name', error: 'name required (max 80 chars)' });
+      if (typeof email !== 'string' || !EMAIL_RE.test(email.trim()) || email.length > 120) return res.status(400).json({ code: 'invalid_email', error: 'valid email required' });
+      if (typeof message !== 'string' || message.trim().length < 10 || message.length > 2000) return res.status(400).json({ code: 'invalid_message', error: 'message required (10–2000 chars)' });
+      // Not configured → say so; the page renders the explicit notice for this.
+      if (!contactAvailable()) return res.status(503).json({ code: 'contact_unavailable', error: 'contact form is not available yet' });
+      if (tooMany(res, await rateLimit('contact:ip', ipHash(req), CONTACT_PER_IP_PER_HOUR, HOUR))) return;
+      const sent = await contactFormEmail(CONTACT_EMAIL, { name: name.trim(), email: email.trim(), message: message.trim() });
+      if (!sent) return res.status(502).json({ code: 'delivery_failed', error: 'message could not be delivered' });
+      return res.status(200).json({ ok: true });
+    }
+
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'sign in required' });
 
@@ -41,11 +70,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!peer) return res.status(404).json({ error: 'recipient not found' });
       // A deactivated peer gets no message and no email (their tombstone
       // address must never be mailed).
-      if (peer.deactivatedAt) return res.status(403).json({ error: 'this account is no longer active' });
+      if (peer.deactivatedAt) return res.status(403).json({ code: 'peer_inactive', error: 'this account is no longer active' });
 
       // Messaging requires a real business relationship — blocks cold spam.
       if (!await offerExistsBetween(user.id, toUserId)) {
-        return res.status(403).json({ error: 'messaging opens once an offer exists between you' });
+        return res.status(403).json({ code: 'no_relationship', error: 'messaging opens once an offer exists between you' });
       }
       // Each message also triggers an email to the peer — cap the send rate.
       if (tooMany(res, await rateLimit('message:user', user.id, MESSAGES_PER_USER_PER_HOUR, HOUR),

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { Footer } from '../components/Footer';
@@ -6,7 +6,7 @@ import { SectionHeader } from '../components/SectionHeader';
 import { Field, Input, Select, Textarea, ChoiceGroup } from '../components/Form';
 import { Empty, Loading } from '../components/Empty';
 import { STYLES, CITIES, styleLabel } from '../data/mock';
-import { auth, artists as artistsApi, reports, type ApiArtist, type ApiArtistProfile, type ApiPortfolioItem, type ReportReason } from '../lib/api';
+import { auth, artists as artistsApi, reports, contact as contactApi, ApiError, type ApiArtist, type ApiArtistProfile, type ApiPortfolioItem, type ReportReason } from '../lib/api';
 import { useAuth } from '../auth/AuthContext';
 import { useLang } from '../i18n/LangContext';
 import { useReveal } from '../hooks/useReveal';
@@ -775,20 +775,87 @@ export function About() {
 /* ---------- Contact ---------- */
 export function Contact() {
   const { lang } = useLang();
+  const tr = lang === 'tr';
+  // null = still asking the API whether the form is wired to an inbox.
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState('');
+  const sending = useRef(false);   // synchronous double-submit guard (state flips only after a render)
+  useEffect(() => { contactApi.status().then(s => setAvailable(s.available)).catch(() => setAvailable(false)); }, []);
+
+  const describe = (err: unknown): string => {
+    if (err instanceof ApiError) {
+      if (err.status === 429) return tr ? 'Çok fazla deneme — lütfen biraz sonra tekrar deneyin.' : 'Too many attempts — please try again a little later.';
+      if (err.code === 'contact_unavailable') return tr ? 'İletişim formu henüz aktif değil.' : 'The contact form is not available yet.';
+      if (err.code === 'invalid_email') return tr ? 'Geçerli bir e-posta adresi girin.' : 'Enter a valid email address.';
+      if (err.code === 'invalid_message') return tr ? 'Mesaj en az 10, en fazla 2000 karakter olmalı.' : 'The message must be 10–2000 characters.';
+      if (err.code === 'invalid_name') return tr ? 'Adınızı girin (en fazla 80 karakter).' : 'Enter your name (max 80 characters).';
+    }
+    return tr ? 'Mesaj gönderilemedi. Lütfen tekrar deneyin.' : 'The message could not be sent. Please try again.';
+  };
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (sending.current) return;   // a second click/Enter while sending cannot double-submit
+    setError('');
+    if (message.trim().length < 10) { setError(tr ? 'Mesaj en az 10 karakter olmalı.' : 'The message must be at least 10 characters.'); return; }
+    sending.current = true; setBusy(true);
+    try {
+      await contactApi.send({ name: name.trim(), email: email.trim(), message: message.trim() });
+      setSent(true);
+      setName(''); setEmail(''); setMessage('');
+    } catch (err) {
+      setError(describe(err));   // fields are kept so the visitor can retry
+    } finally {
+      sending.current = false; setBusy(false);
+    }
+  };
+
   return (
-    <Page num="09" eyebrow={lang === 'tr' ? 'İletişim' : 'Contact'} title={lang === 'tr' ? 'Bize' : 'Talk to'} italic={lang === 'tr' ? 'yazın.' : 'us.'}>
-      <div className="split">
-        <form className="col gap-4" onSubmit={(e) => e.preventDefault()} style={{ maxWidth: 480 }}>
-          <Field label={lang === 'tr' ? 'Adınız' : 'Your name'}><Input /></Field>
-          <Field label={lang === 'tr' ? 'E-posta' : 'Email'}><Input type="email" /></Field>
-          <Field label={lang === 'tr' ? 'Mesaj' : 'Message'}><Textarea rows={5} /></Field>
-          <button className="btn btn-primary" type="submit">{lang === 'tr' ? 'Gönder' : 'Send'}</button>
-        </form>
-        <div className="col gap-3">
-          <span className="mono text-muted">{lang === 'tr' ? 'Doğrudan' : 'Direct'}</span>
-          <p className="display display-md" style={{ margin: 0, overflowWrap: 'anywhere' }}>hello@tattoogo.example</p>
-          <span className="text-muted">Istanbul · Karaköy · TR</span>
-        </div>
+    <Page num="09" eyebrow={tr ? 'İletişim' : 'Contact'} title={tr ? 'Bize' : 'Talk to'} italic={tr ? 'yazın.' : 'us.'}>
+      <div style={{ maxWidth: 520 }}>
+        {available === null && <Loading />}
+        {available === false && (
+          <div className="card card-pad col gap-2">
+            <strong>{tr ? 'İletişim formu henüz aktif değil.' : 'The contact form is not active yet.'}</strong>
+            <span className="text-muted" style={{ fontSize: 14 }}>
+              {tr
+                ? 'Bu kanal yakında açılacak. O zamana kadar hesabınızla ilgili işlemler için panelinizi kullanabilirsiniz.'
+                : 'This channel opens soon. Until then, use your dashboard for anything account-related.'}
+            </span>
+          </div>
+        )}
+        {available && sent && (
+          <div className="card card-pad col gap-2">
+            <strong>✓ {tr ? 'Mesajınız alındı.' : 'Your message has been received.'}</strong>
+            <span className="text-muted" style={{ fontSize: 14 }}>
+              {tr ? 'En kısa sürede e-posta ile dönüş yapacağız.' : 'We will reply by email as soon as we can.'}
+            </span>
+            <button className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start', marginTop: 8 }} onClick={() => setSent(false)}>
+              {tr ? 'Yeni mesaj yaz' : 'Write another message'}
+            </button>
+          </div>
+        )}
+        {available && !sent && (
+          <form className="col gap-4" onSubmit={submit} noValidate>
+            {error && <span role="alert" className="mono" style={{ color: 'var(--ink)' }}>⚠ {error}</span>}
+            <Field label={tr ? 'Adınız' : 'Your name'}>
+              <Input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />
+            </Field>
+            <Field label={tr ? 'E-posta' : 'Email'}>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={120} />
+            </Field>
+            <Field label={tr ? 'Mesaj' : 'Message'} hint={tr ? `${message.trim().length}/2000` : `${message.trim().length}/2000`}>
+              <Textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} required minLength={10} maxLength={2000} />
+            </Field>
+            <button className="btn btn-primary" type="submit" disabled={busy || !name.trim() || !email.trim() || !message.trim()}>
+              {busy ? '…' : (tr ? 'Gönder' : 'Send')}
+            </button>
+          </form>
+        )}
       </div>
     </Page>
   );

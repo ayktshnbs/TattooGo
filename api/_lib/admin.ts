@@ -225,14 +225,14 @@ export async function adminListPortfolio(status: 'pending' | 'approved' | 'all',
 
 export async function adminListRequests({ limit, offset }: Paging = { limit: 200, offset: 0 }) {
   if (!usePg) return [];
-  const rows = await sql`SELECT r.id, r.title, r.style, r.city, r.district,
+  const rows = await sql`SELECT r.id, r.title, r.style, r.city,
            r.budget_min, r.budget_max, r.reference_url, r.status, r.created_at,
            r.customer_id, r.customer_name,
            (SELECT COUNT(*)::int FROM offers o WHERE o.request_id = r.id) AS offer_count
     FROM requests r ORDER BY r.ts DESC, r.id LIMIT ${limit} OFFSET ${offset}`;
   return rows.map(r => ({
     id: r.id, title: r.title, style: r.style,
-    city: r.city, district: r.district,
+    city: r.city ?? null,
     budgetMin: r.budget_min == null ? null : Number(r.budget_min),
     budgetMax: r.budget_max == null ? null : Number(r.budget_max),
     referenceUrl: r.reference_url ?? null,

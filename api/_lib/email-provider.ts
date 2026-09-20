@@ -16,6 +16,8 @@ export interface OutgoingEmail {
   to: string;
   subject: string;
   html: string;
+  /** Optional Reply-To (contact form: the visitor's address). */
+  replyTo?: string;
 }
 
 export class EmailDeliveryError extends Error {
@@ -44,6 +46,7 @@ export async function deliver(mail: OutgoingEmail): Promise<void> {
     subject: mail.subject,
     html: mail.html,
   });
+  if (mail.replyTo) body.set('h:Reply-To', mail.replyTo);
   const res = await fetch(`${MAILGUN_BASE_URL}/v3/${MAILGUN_DOMAIN}/messages`, {
     method: 'POST',
     headers: {

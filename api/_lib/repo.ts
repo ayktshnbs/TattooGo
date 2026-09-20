@@ -563,7 +563,7 @@ export interface NewOfferInput {
 }
 export type CreateOfferOutcome =
   | { ok: true; offer: OfferRow }
-  | { ok: false; reason: 'duplicate' | 'request-closed' };
+  | { ok: false; reason: 'duplicate' | 'request-closed' | 'self' };
 
 /**
  * Atomic create: the offer is inserted only if the request is still `open`,
@@ -571,14 +571,16 @@ export type CreateOfferOutcome =
  * row makes a concurrent accept/cancel serialize: if it commits first, the
  * re-checked `status = 'open'` fails and nothing is inserted. Request-derived
  * columns (title, customer) are copied from the locked row, never from the
- * client. UNIQUE (request_id, artist_id) still dedupes.
+ * client. UNIQUE (request_id, artist_id) still dedupes. A provider can never
+ * bid on their own brief: the locked row must belong to someone else, and the
+ * CHECK (artist_id <> customer_id) constraint backs that up for any path.
  */
 export async function createOffer(o: NewOfferInput): Promise<CreateOfferOutcome> {
   if (usePg) {
     try {
       const rows = await sql`WITH r AS (
           SELECT id, title, customer_id, customer_name FROM requests
-          WHERE id = ${o.requestId} AND status = 'open'
+          WHERE id = ${o.requestId} AND status = 'open' AND customer_id <> ${o.artistId}
           FOR UPDATE
         )
         INSERT INTO offers (id, request_id, request_title, artist_id, artist_name, customer_id, customer_name, price, message, appointment_at, status, created_at, ts)
@@ -589,6 +591,7 @@ export async function createOffer(o: NewOfferInput): Promise<CreateOfferOutcome>
       if (!rows[0]) return { ok: false, reason: 'request-closed' };
       return { ok: true, offer: mapOffer(rows[0]) };
     } catch (err) {
+      if (err instanceof Error && /offers_no_self_offer/.test(err.message)) return { ok: false, reason: 'self' };
       if (err instanceof Error && /unique|duplicate/i.test(err.message)) return { ok: false, reason: 'duplicate' };
       throw err;
     }
@@ -596,6 +599,7 @@ export async function createOffer(o: NewOfferInput): Promise<CreateOfferOutcome>
   const requests = await readCollection<RequestRow>('requests');
   const r = requests.find(x => x.id === o.requestId);
   if (!r || r.status !== 'open') return { ok: false, reason: 'request-closed' };
+  if (r.customerId === o.artistId) return { ok: false, reason: 'self' };
   const offers = await readCollection<OfferRow>('offers');
   if (offers.some(x => x.requestId === o.requestId && x.artistId === o.artistId)) return { ok: false, reason: 'duplicate' };
   const row: OfferRow = {
@@ -624,13 +628,17 @@ export async function acceptOffer(offerId: string, customerId: string): Promise<
   if (usePg) {
     const rows = await sql`WITH r AS (
         UPDATE requests SET status = 'booked'
+        -- The offer predicate here MUST equal the one in the "o" update below:
+        -- the request is booked only for an offer that will actually be accepted.
         WHERE id = (SELECT request_id FROM offers
-                    WHERE id = ${offerId} AND customer_id = ${customerId} AND status = 'sent')
+                    WHERE id = ${offerId} AND customer_id = ${customerId} AND status = 'sent'
+                      AND artist_id <> customer_id)
           AND status = 'open'
         RETURNING id
       ), o AS (
         UPDATE offers SET status = 'accepted'
         WHERE id = ${offerId} AND customer_id = ${customerId} AND status = 'sent'
+          AND artist_id <> customer_id
           AND request_id IN (SELECT id FROM r)
         RETURNING *
       ), s AS (
@@ -644,7 +652,7 @@ export async function acceptOffer(offerId: string, customerId: string): Promise<
   }
   const offers = await readCollection<OfferRow>('offers');
   const o = offers.find(x => x.id === offerId);
-  if (!o || o.customerId !== customerId || o.status !== 'sent') return null;
+  if (!o || o.customerId !== customerId || o.status !== 'sent' || o.artistId === o.customerId) return null;
   const requests = await readCollection<RequestRow>('requests');
   const r = requests.find(x => x.id === o.requestId);
   if (!r || r.status !== 'open') return null;
@@ -821,6 +829,7 @@ export async function createReview(
       const rows = await sql`INSERT INTO reviews (id, offer_id, request_title, artist_id, customer_id, customer_name, rating, text, created_at, ts)
         SELECT ${id}, o.id, o.request_title, o.artist_id, ${customerId}, ${customerName}, ${rating}, ${text}, ${nowRow.createdAt}, ${nowRow.ts}
         FROM offers o WHERE o.id = ${offerId} AND o.customer_id = ${customerId} AND o.status = 'completed'
+          AND o.artist_id <> o.customer_id
         RETURNING *`;
       if (rows[0]) return mapReview(rows[0]);
     } catch (err) {

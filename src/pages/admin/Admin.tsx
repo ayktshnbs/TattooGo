@@ -391,7 +391,7 @@ export function AdminRequestsPage() {
                   <td style={{ padding: '10px 8px' }}>{r.customerName}</td>
                   <td style={{ padding: '10px 8px' }}>{r.title}</td>
                   <td style={{ padding: '10px 8px' }}>{r.style}</td>
-                  <td style={{ padding: '10px 8px' }}>{r.city ?? '—'}{r.district ? ` · ${r.district}` : ''}</td>
+                  <td style={{ padding: '10px 8px' }}>{r.city ?? '—'}</td>
                   <td style={{ padding: '10px 8px' }}>
                     {r.budgetMin != null || r.budgetMax != null ? `₺${(r.budgetMin ?? 0).toLocaleString()}–₺${(r.budgetMax ?? 0).toLocaleString()}` : '—'}
                   </td>

@@ -49,6 +49,43 @@ const STATUS_LABEL: Record<string, { en: string; tr: string }> = {
   booked: { en: 'Booked', tr: 'Rezerve' },
 };
 
+/**
+ * Why offers / the request board are unavailable — shown on Studio Home and
+ * Give Offer for every non-active provider status. Renders nothing for
+ * active providers. (Same wording that used to live inline in GiveOffer.)
+ */
+function ProviderStatusNotice() {
+  const { lang } = useLang();
+  const { user } = useAuth();
+  const status = user?.providerStatus;
+  if (!status || status === 'active') return null;
+  return (
+    <div className="card card-pad" style={{ marginBottom: 20, borderColor: 'var(--ink)' }}>
+      <strong>
+        {status === 'pending_profile'
+          ? (lang === 'tr' ? 'Teklif verebilmek için profilinizi tamamlayın.' : 'Complete your profile to send offers.')
+          : status === 'needs_review'
+            ? (lang === 'tr' ? 'Profiliniz inceleniyor.' : 'Your profile is under review.')
+            : (lang === 'tr' ? 'Hesabınız askıya alındı.' : 'Your account is suspended.')}
+      </strong>
+      <p className="text-muted" style={{ margin: '6px 0 0', fontSize: 14 }}>
+        {status === 'pending_profile'
+          ? (lang === 'tr' ? 'Açık istekler ve teklif gönderme, profiliniz aktif olduğunda açılır: isim, şehir, ilçe, biyografi, stiller, konum, Instagram ve en az 3 portfolyo görseli.' : 'Open briefs and sending offers unlock once your profile is active: name, city, district, bio, styles, location, Instagram and at least 3 portfolio images.')
+          : status === 'needs_review'
+            ? (lang === 'tr' ? 'İnceleme tamamlanana kadar açık istekler ve teklif gönderme kapalıdır. Yakında size dönüş yapacağız.' : 'Open briefs and sending offers stay closed until the review is complete. We will get back to you soon.')
+            : (lang === 'tr' ? 'Açık istekler ve teklif gönderme kapalıdır. Lütfen destek ile iletişime geçin.' : 'Open briefs and sending offers are closed. Please contact support.')}
+      </p>
+      {status === 'pending_profile' && (
+        <div style={{ marginTop: 10 }}>
+          <Link to="/studio/profile" className="btn btn-sm btn-accent">
+            {lang === 'tr' ? 'Profili Tamamla' : 'Complete profile'}
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OpenRequestCard({ r, lang }: { r: ApiRequest; lang: string }) {
   return (
     <article className="card card-pad col gap-2">
@@ -133,21 +170,28 @@ export function StudioHome() {
       {!data && !error && <Loading />}
       {data && (
         <>
+          <ProviderStatusNotice />
           <PremiumCard />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 32 }}>
-            <StatsCard label={lang === 'tr' ? 'Açık istek' : 'Open briefs'} value={String(data.stats.openRequests)} />
+            <StatsCard label={lang === 'tr' ? 'Açık istek' : 'Open briefs'} value={data.boardAccess === 'active' ? String(data.stats.openRequests) : '—'} />
             <StatsCard label={lang === 'tr' ? 'Gönderilen teklif' : 'Offers sent'} value={String(data.stats.offersSent)} />
             <StatsCard label={lang === 'tr' ? 'Rezerve iş' : 'Booked jobs'} value={String(data.stats.jobsBooked)} />
             <StatsCard label={lang === 'tr' ? 'Tamamlanan' : 'Completed'} value={String(data.stats.jobsCompleted)} />
           </div>
 
-          <SectionTitle num="B1" label={lang === 'tr' ? 'Açık istekler' : 'Open briefs'} action={<Link to="/studio/give-offer" className="mono">{t('common.viewAll')} →</Link>} />
-          {data.recentRequests.length === 0 ? (
-            <Empty title={lang === 'tr' ? 'Şu an açık istek yok' : 'No open briefs right now'} body={lang === 'tr' ? 'Müşteriler istek oluşturdukça burada görünür.' : 'Customer requests appear here as they are published.'} />
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
-              {data.recentRequests.slice(0, 2).map(r => <OpenRequestCard key={r.id} r={r} lang={lang} />)}
-            </div>
+          {/* The board is withheld server-side for non-active providers (the
+              notice above explains why) — never render an empty "no briefs". */}
+          {data.boardAccess === 'active' && (
+            <>
+              <SectionTitle num="B1" label={lang === 'tr' ? 'Açık istekler' : 'Open briefs'} action={<Link to="/studio/give-offer" className="mono">{t('common.viewAll')} →</Link>} />
+              {data.recentRequests.length === 0 ? (
+                <Empty title={lang === 'tr' ? 'Şu an açık istek yok' : 'No open briefs right now'} body={lang === 'tr' ? 'Müşteriler istek oluşturdukça burada görünür.' : 'Customer requests appear here as they are published.'} />
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+                  {data.recentRequests.slice(0, 2).map(r => <OpenRequestCard key={r.id} r={r} lang={lang} />)}
+                </div>
+              )}
+            </>
           )}
 
           <SectionTitle num="B2" label={lang === 'tr' ? 'Son tekliflerim' : 'My latest offers'} action={<Link to="/studio/offers" className="mono">{t('common.viewAll')} →</Link>} />
@@ -317,24 +361,7 @@ export function GiveOffer() {
   const notActive = user?.providerStatus && user.providerStatus !== 'active';
   return (
     <DashboardLayout scope="studio" title={lang === 'tr' ? 'Teklif ver' : 'Send an offer'} subtitle={lang === 'tr' ? 'Açık müşteri istekleri — gerçek zamanlı.' : 'Open customer briefs — live.'}>
-      {notActive && (
-        <div className="card card-pad" style={{ marginBottom: 20, borderColor: 'var(--ink)' }}>
-          <strong>
-            {user?.providerStatus === 'pending_profile'
-              ? (lang === 'tr' ? 'Teklif verebilmek için profilinizi tamamlayın.' : 'Complete your profile to send offers.')
-              : user?.providerStatus === 'needs_review'
-                ? (lang === 'tr' ? 'Profiliniz inceleniyor.' : 'Your profile is under review.')
-                : (lang === 'tr' ? 'Hesabınız askıya alındı.' : 'Your account is suspended.')}
-          </strong>
-          {user?.providerStatus === 'pending_profile' && (
-            <div style={{ marginTop: 10 }}>
-              <Link to="/studio/profile" className="btn btn-sm btn-accent">
-                {lang === 'tr' ? 'Profili Tamamla' : 'Complete profile'}
-              </Link>
-            </div>
-          )}
-        </div>
-      )}
+      <ProviderStatusNotice />
       {error && !notActive && <ErrorNote message={error} />}
       {!data && !error && !notActive && <Loading />}
       {data && (data.length === 0 ? (

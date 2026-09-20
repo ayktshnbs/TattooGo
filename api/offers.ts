@@ -54,6 +54,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'message required (max 2000 chars)' });
       }
 
+      // A provider cannot bid on their own brief. Decided on the request row's
+      // customer_id (never on client-supplied ids) and enforced again inside
+      // the insert + by the offers CHECK constraint, so it cannot be bypassed.
+      const target = await getRequestById(requestId);
+      if (!target) return res.status(404).json({ error: 'request not found' });
+      if (target.customerId === user.id) {
+        return res.status(403).json({ code: 'self_offer', error: 'you cannot send an offer on your own request' });
+      }
+
       // The request's openness is enforced INSIDE the insert (repo.createOffer),
       // not by a pre-check — a concurrent cancel/accept can't race past it.
       const created = await createOffer({
@@ -68,6 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ts: Date.now(),
       });
       if (!created.ok) {
+        if (created.reason === 'self') return res.status(403).json({ code: 'self_offer', error: 'you cannot send an offer on your own request' });
         if (created.reason === 'duplicate') return res.status(409).json({ error: 'you already sent an offer on this request' });
         const exists = await getRequestById(requestId);
         if (!exists) return res.status(404).json({ error: 'request not found' });

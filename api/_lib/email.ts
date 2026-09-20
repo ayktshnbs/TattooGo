@@ -124,6 +124,29 @@ export function jobCompletedEmail(to: string, customerName: string, requestTitle
   });
 }
 
+/** Contact-form message → the site inbox. Returns false when it could not be
+ *  delivered (the visitor must be told, unlike fire-and-forget notifications). */
+export async function contactFormEmail(to: string, from: { name: string; email: string; message: string }): Promise<boolean> {
+  if (!isConfigured()) { console.log('contact form email skipped (provider not configured)'); return false; }
+  try {
+    await deliver({
+      to,
+      replyTo: from.email,
+      subject: `Contact form: ${from.name.slice(0, 60)}`,
+      html: layout(
+        'New contact-form message',
+        `<p><strong>${esc(from.name)}</strong> &lt;${esc(from.email)}&gt; wrote:</p>
+         <p style="border-left:3px solid #000;padding-left:12px;color:#555;white-space:pre-wrap">${esc(from.message)}</p>
+         <p style="color:#999;font-size:12px">Reply to this email to answer them directly.</p>`,
+      ),
+    });
+    return true;
+  } catch (err) {
+    console.error('contact form email failed', err instanceof Error ? err.message : '');
+    return false;
+  }
+}
+
 export function newMessageEmail(to: string, recipientName: string, senderName: string, preview: string, isArtist: boolean) {
   return notify({
     to,

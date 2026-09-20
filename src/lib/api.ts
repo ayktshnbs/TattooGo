@@ -8,9 +8,12 @@ import type { TattooStyle } from '../data/types';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** Optional machine-readable code from the API (e.g. 'peer_inactive'). */
+  code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -25,7 +28,10 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
   if (!isJson) throw new ApiError(res.status, 'API unavailable — run the deployed site or the dev proxy');
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `HTTP ${res.status}`);
+  if (!res.ok) {
+    const { error, code } = data as { error?: string; code?: string };
+    throw new ApiError(res.status, error ?? `HTTP ${res.status}`, code);
+  }
   return data as T;
 }
 
@@ -137,7 +143,7 @@ export interface AdminReportedPortfolioItem extends AdminPortfolioItem {
 
 export interface AdminRequest {
   id: string; title: string; style: string;
-  city: string | null; district: string | null;
+  city: string | null;   // briefs are city-level; requests have no district
   budgetMin: number | null; budgetMax: number | null;
   referenceUrl: string | null;
   status: 'open' | 'booked' | 'completed' | 'cancelled';
@@ -417,6 +423,14 @@ export const reports = {
     }),
 };
 
+/* ---------- public contact form ---------- */
+
+export const contact = {
+  status: () => call<{ available: boolean }>('/api/messages?action=contact'),
+  send: (input: { name: string; email: string; message: string }) =>
+    call<{ ok: true }>('/api/messages?action=contact', { method: 'POST', body: JSON.stringify(input) }),
+};
+
 /* ---------- dashboard aggregates ---------- */
 
 export interface CustomerDashboard {
@@ -429,6 +443,8 @@ export interface CustomerDashboard {
 
 export interface ArtistDashboard {
   role: 'artist' | 'studio';
+  /** 'denied' while the provider is not active: the board is withheld server-side. */
+  boardAccess: 'active' | 'denied';
   stats: {
     openRequests: number; offersSent: number; offersPending: number;
     jobsBooked: number; jobsCompleted: number; earnings: number;

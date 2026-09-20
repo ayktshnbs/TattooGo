@@ -80,6 +80,34 @@ test('offers cannot be created on a closed request, and never twice by one artis
   assert.deepEqual(await repo.createOffer(offerInput(requestId, artistB, 'D3')), { ok: false, reason: 'request-closed' });
 });
 
+test('a provider cannot bid on their own brief, and a self-offer can never be accepted (M2)', { skip: skipReason }, async () => {
+  // Multi-mode: the customer who owns the brief is also a provider.
+  await sql`UPDATE users SET provider_type = 'artist', provider_status = 'active' WHERE id = ${customer}`;
+  const requestId = await makeRequest(customer, 'S');
+  const self = await repo.createOffer(offerInput(requestId, customer, 'S1'));
+  assert.equal(self.ok, false, 'insert refused inside the statement');
+  const rows = await sql`SELECT COUNT(*)::int AS c FROM offers WHERE request_id = ${requestId}`;
+  assert.equal(Number(rows[0].c), 0, 'nothing written');
+
+  // Belt and braces: even a pre-existing self-offer row (where the CHECK
+  // constraint is not yet applied) is never acceptable.
+  const [con] = await sql`SELECT COUNT(*)::int AS c FROM pg_constraint WHERE conname = 'offers_no_self_offer'`;
+  if (Number(con.c) > 0) {
+    await assert.rejects(
+      () => sql`INSERT INTO offers (id, request_id, request_title, artist_id, artist_name, customer_id, customer_name, price, message, status, created_at, ts)
+        VALUES (${uniq('offSelf')}, ${requestId}, 'Brief S', ${customer}, 'Self', ${customer}, 'Self', 1, 'm', 'sent', '2026-09-21', ${Date.now()})`,
+      /offers_no_self_offer/, 'database rejects the row outright');
+  } else {
+    const legacyId = uniq('offSelf');
+    await sql`INSERT INTO offers (id, request_id, request_title, artist_id, artist_name, customer_id, customer_name, price, message, status, created_at, ts)
+      VALUES (${legacyId}, ${requestId}, 'Brief S', ${customer}, 'Self', ${customer}, 'Self', 1, 'm', 'sent', '2026-09-21', ${Date.now()})`;
+    assert.equal(await repo.acceptOffer(legacyId, customer), null, 'legacy self-offer cannot be accepted');
+    const [req] = await sql`SELECT status FROM requests WHERE id = ${requestId}`;
+    assert.equal(req.status, 'open', 'request untouched');
+  }
+  await sql`UPDATE users SET provider_type = NULL, provider_status = NULL WHERE id = ${customer}`;
+});
+
 test('concurrent offer creation vs cancel never yields an acceptable offer on a cancelled request', { skip: skipReason }, async () => {
   const requestId = await makeRequest(customer, 'E');
   const [created, cancel] = await Promise.all([

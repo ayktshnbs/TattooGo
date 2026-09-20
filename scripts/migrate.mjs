@@ -72,6 +72,19 @@ export const MIGRATIONS = [
       `ALTER TABLE portfolio_items ALTER COLUMN status SET DEFAULT 'approved'`,
     ],
   },
+  {
+    name: '2026-09-21-006-offers-no-self-offer',
+    // M2: a multi-mode account could bid on its own brief (→ self-accept →
+    // self-review). The API refuses it; this makes the database refuse it too.
+    // Guarded so re-running is a no-op.
+    statements: [
+      `DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'offers_no_self_offer') THEN
+          ALTER TABLE offers ADD CONSTRAINT offers_no_self_offer CHECK (artist_id <> customer_id);
+        END IF;
+      END $$`,
+    ],
+  },
 ];
 
 /** Apply pending migrations and record them. Returns the names applied. */

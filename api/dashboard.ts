@@ -47,8 +47,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    // Customer briefs are only for ACTIVE providers — the same rule as
+    // /api/requests?board=1 (403 there). The rest of the provider dashboard is
+    // the provider's own data, so it still loads; the board is withheld
+    // server-side and `boardAccess` tells the UI why.
+    const boardAccess: 'active' | 'denied' = user.providerStatus === 'active' ? 'active' : 'denied';
     const [openBoard, myOffers, myReviews, portfolio] = await Promise.all([
-      listOpenRequests(),
+      boardAccess === 'active' ? listOpenRequests() : Promise.resolve([]),
       listOffersByArtist(user.id),
       listReviewsByArtist(user.id),
       portfolioCountsByArtist(user.id),
@@ -60,6 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({
       role: user.providerType,
+      boardAccess,
       stats: {
         openRequests: openBoard.length,
         offersSent: myOffers.length,

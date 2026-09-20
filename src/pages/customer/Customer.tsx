@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { Field, Input, Textarea, Select, ChoiceGroup, UploadImage } from '../../components/Form';
@@ -11,7 +11,7 @@ import { STYLES, CITIES, PLACEMENTS, INK_COLORS, taxonomyLabel, styleLabel } fro
 import { fileToUpload, fetchUploads, UPLOADS_EVENT } from '../../data/uploads';
 import { DesignCard, DiscoverySection, PopularStyleGrid, RecommendedArtists } from './Feed';
 import {
-  dashboard, requests, offers, messages, reviews, notifications, auth as authApi,
+  dashboard, requests, offers, messages, reviews, notifications, auth as authApi, ApiError,
   type ApiRequest, type ApiOffer, type ApiMessage, type CustomerDashboard,
 } from '../../lib/api';
 
@@ -334,20 +334,36 @@ export function MessagesPage({ scope }: { scope: 'customer' | 'studio' }) {
   const [thread, setThread] = useState<ApiMessage[] | null>(null);
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const sending = useRef(false);   // synchronous double-send guard (state flips only after a render)
   const active = activeId || threads?.[0]?.peerId || '';
   useEffect(() => {
     if (!active) return;
+    setSendError('');
     messages.thread(active).then(setThread).catch(() => setThread([]));
   }, [active]);
+  // User-facing, localized reason for a failed send — never the raw server text.
+  const describeSendError = (err: unknown): string => {
+    const tr = lang === 'tr';
+    if (err instanceof ApiError) {
+      if (err.status === 429) return tr ? 'Çok hızlı mesaj gönderiyorsunuz — biraz bekleyip tekrar deneyin.' : 'You are sending messages too quickly — wait a moment and try again.';
+      if (err.code === 'peer_inactive') return tr ? 'Bu hesap artık aktif değil; mesaj iletilemez.' : 'This account is no longer active; the message cannot be delivered.';
+      if (err.code === 'no_relationship') return tr ? 'Mesajlaşma yalnızca aranızda aktif bir teklif varken açıktır.' : 'Messaging is open only while there is an active offer between you.';
+      if (err.status === 401) return tr ? 'Oturumunuz sona erdi — lütfen tekrar giriş yapın.' : 'Your session has expired — please sign in again.';
+    }
+    return tr ? 'Mesaj gönderilemedi. Lütfen tekrar deneyin.' : 'The message could not be sent. Please try again.';
+  };
   const send = async () => {
-    if (!text.trim() || !active) return;
-    setBusy(true);
+    if (sending.current || !text.trim() || !active) return;   // Enter + click can't double-send
+    sending.current = true; setBusy(true); setSendError('');
     try {
       await messages.send(active, text.trim());
       setText('');
       setThread(await messages.thread(active));
+    } catch (err) {
+      setSendError(describeSendError(err));   // text is kept so the user can retry
     } finally {
-      setBusy(false);
+      sending.current = false; setBusy(false);
     }
   };
   return (
@@ -384,6 +400,11 @@ export function MessagesPage({ scope }: { scope: 'customer' | 'studio' }) {
               ))}
               {thread && thread.length === 0 && <span className="mono text-muted">{lang === 'tr' ? 'İlk mesajı yazın.' : 'Write the first message.'}</span>}
             </div>
+            {sendError && (
+              <div role="alert" className="mono" style={{ padding: '10px 14px', borderTop: '1px solid var(--hairline)', color: 'var(--ink)', fontSize: 11 }}>
+                ⚠ {sendError}
+              </div>
+            )}
             <div className="row gap-2" style={{ padding: 14, borderTop: '1px solid var(--hairline)' }}>
               <input
                 className="input" style={{ flex: 1, border: '1px solid var(--hairline-strong)', padding: '10px 12px' }}
@@ -391,7 +412,7 @@ export function MessagesPage({ scope }: { scope: 'customer' | 'studio' }) {
                 value={text} onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
               />
-              <button className="btn btn-sm btn-accent" onClick={send} disabled={busy || !text.trim()}>{lang === 'tr' ? 'Gönder' : 'Send'}</button>
+              <button className="btn btn-sm btn-accent" onClick={send} disabled={busy || !text.trim()}>{busy ? '…' : (lang === 'tr' ? 'Gönder' : 'Send')}</button>
             </div>
           </div>
         </div>

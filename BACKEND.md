@@ -38,6 +38,7 @@ Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`,
 | `MAILGUN_SANDBOX_DOMAIN` | for testing | Mailgun's sandbox domain — only delivers to recipients added as "Authorized Recipients" in the Mailgun dashboard |
 | `MAILGUN_BASE_URL` | optional | `https://api.mailgun.net` (US, default) or `https://api.eu.mailgun.net` (EU) — must match the region the domain was created in |
 | `MAILGUN_FROM_EMAIL` | optional | e.g. `TattooGo <mail@yourdomain.com>`; defaults to the sandbox sender |
+| `CONTACT_EMAIL` | optional | Inbox for the public contact form (`/contact` → `POST /api/messages?action=contact`, Reply-To = visitor). Unset → the page shows "contact form not active yet" instead of a form |
 | `VITE_API_PROXY` | dev only | localhost /api proxy target (defaults to production) |
 | *(map)* | none | discovery map uses Leaflet + OpenStreetMap tiles — **no API key required**. `VITE_GOOGLE_MAPS_API_KEY` is removed/ignored. |
 | `PREMIUM_REQUIRED` | optional | Offer premium gate. **Default `false`** = gate inert, marketplace unchanged. `true` = active providers also need an active premium subscription to send offers |
