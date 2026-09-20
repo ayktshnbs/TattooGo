@@ -179,7 +179,7 @@ CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, ts D
 -- previous/new_value hold small JSON snippets (never secrets / never full bodies).
 CREATE TABLE IF NOT EXISTS admin_audit_log (
   id             TEXT PRIMARY KEY,
-  admin_user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+  admin_user_id  TEXT REFERENCES users(id) ON DELETE SET NULL,   -- nullable: rows outlive a deleted admin account
   action         TEXT NOT NULL,
   target_type    TEXT,
   target_id      TEXT,
@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS provider_subscriptions (
   current_period_start     BIGINT,             -- ms epoch
   current_period_end       BIGINT,             -- ms epoch
   cancel_at_period_end     BOOLEAN NOT NULL DEFAULT FALSE,
+  last_event_at            BIGINT,             -- provider event time of the last APPLIED event; older events are ignored
   created_at               BIGINT NOT NULL,
   updated_at               BIGINT NOT NULL,
   UNIQUE (user_id, provider)
@@ -216,4 +217,21 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   event_id    TEXT PRIMARY KEY,
   provider    TEXT NOT NULL DEFAULT 'creem',
   received_at BIGINT NOT NULL
+);
+
+-- Fixed-window rate limits (serverless functions share no memory, so the
+-- counters live here). key = '<scope>:<subject>' e.g. 'login:ip:<hash>'.
+-- Rows are pruned opportunistically; the table never holds raw IPs (hashed).
+CREATE TABLE IF NOT EXISTS rate_limits (
+  key          TEXT PRIMARY KEY,
+  count        INTEGER NOT NULL,
+  window_start BIGINT NOT NULL                 -- ms epoch
+);
+
+-- Migration ledger — scripts/migrate.mjs records every applied migration here.
+-- A fresh init (schema.sql) and a migrated production database converge on the
+-- same schema; scripts/schema-check.mjs verifies that.
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  name       TEXT PRIMARY KEY,
+  applied_at BIGINT NOT NULL
 );

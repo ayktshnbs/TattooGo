@@ -1,4 +1,5 @@
 import { del, list, put } from '@vercel/blob';
+import { randomBytes } from 'node:crypto';
 
 /**
  * Blob-backed JSON collections — the prototype's database.
@@ -192,8 +193,11 @@ export function writeFeedIndex<T>(entries: T[]): Promise<void> {
   return writeVersioned('feed/v/', entries);
 }
 
+/** Row id: sortable time prefix + 48 bits from the CSPRNG. Ids are not
+ *  secrets, but they must not be guessable from a neighbouring id either
+ *  (Math.random is predictable across a warm function instance). */
 export function newId(prefix: string): string {
-  return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}${Date.now().toString(36)}${randomBytes(6).toString('hex')}`;
 }
 
 export function today(): string {

@@ -7,7 +7,7 @@
  *  Reads APP_URL or PUBLIC_APP_URL; empty strings are treated as unset so a
  *  misconfigured env can never produce broken relative links in emails. */
 export const APP_URL = (
-  process.env.APP_URL || process.env.PUBLIC_APP_URL || 'https://tattoo-go.vercel.app'
+  process.env.APP_URL || process.env.PUBLIC_APP_URL || 'https://tattoogo.art'
 ).replace(/\/$/, '');
 
 /** Sender for transactional email, e.g. `TattooGo <mail@yourdomain.com>`. */
@@ -21,6 +21,15 @@ export const MAILGUN_DOMAIN = process.env.MAILGUN_DOMAIN || process.env.MAILGUN_
 export const MAILGUN_BASE_URL = (process.env.MAILGUN_BASE_URL || 'https://api.mailgun.net').replace(/\/$/, '');
 
 export const DATABASE_URL = process.env.DATABASE_URL ?? '';
+
+/** Fail fast in production. Without DATABASE_URL the repo would silently fall
+ *  back to the legacy Blob-JSON prototype store (last-writer-wins, no
+ *  constraints) and real traffic would land in the wrong place. Throwing at
+ *  module load makes every function fail loudly instead. Local/preview keep
+ *  the fallback for prototyping. */
+if (process.env.VERCEL_ENV === 'production' && DATABASE_URL.length === 0) {
+  throw new Error('DATABASE_URL is required in production (Blob fallback is disabled)');
+}
 
 /* ---------- Premium membership / Creem (test mode until launched) ---------- */
 

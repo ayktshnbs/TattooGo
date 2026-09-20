@@ -30,14 +30,22 @@ export interface Session {
 
 /* ---------- passwords ---------- */
 
+/** scrypt with Node's defaults, stated explicitly so a future cost change is a
+ *  deliberate migration (existing hashes must keep verifying): N=16384 (2^14),
+ *  r=8, p=1, 64-byte key, 16-byte random salt per user. ~50 ms per hash on the
+ *  serverless runtime — enough to make bulk offline guessing expensive without
+ *  making login noticeably slow. */
+const SCRYPT = { N: 16384, r: 8, p: 1 } as const;
+const KEY_BYTES = 64;
+
 export function hashPassword(password: string): { salt: string; passHash: string } {
   const salt = randomBytes(16).toString('hex');
-  const passHash = scryptSync(password, salt, 64).toString('hex');
+  const passHash = scryptSync(password, salt, KEY_BYTES, SCRYPT).toString('hex');
   return { salt, passHash };
 }
 
 export function verifyPassword(password: string, salt: string, passHash: string): boolean {
-  const candidate = scryptSync(password, salt, 64);
+  const candidate = scryptSync(password, salt, KEY_BYTES, SCRYPT);
   const stored = Buffer.from(passHash, 'hex');
   return candidate.length === stored.length && timingSafeEqual(candidate, stored);
 }

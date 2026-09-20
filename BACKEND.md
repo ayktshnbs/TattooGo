@@ -31,8 +31,7 @@ Endpoints: `auth`, `requests`, `offers`, `messages`, `reviews`, `artists`,
 | --- | --- | --- |
 | `AUTH_SECRET` | yes (set) | HMAC key for session cookies |
 | `BLOB_READ_WRITE_TOKEN` | yes (set) | Vercel Blob (files + fallback data) |
-| `ADMIN_TOKEN` | yes (set) | /moderation review console |
-| `PUBLIC_APP_URL` | yes (set) | Origin used in email links & redirects — **update when the custom domain goes live** |
+| `APP_URL` / `PUBLIC_APP_URL` | yes (set) | Origin used in email links & redirects (defaults to `https://tattoogo.art`) |
 | `DATABASE_URL` | for Postgres | Neon connection string — flips the repo from Blob fallback to Postgres |
 | `MAILGUN_API_KEY` | for email | Mailgun private API key — without it, emails are skipped (logged), actions still succeed |
 | `MAILGUN_DOMAIN` | for email | Verified sending domain (e.g. `mg.yourdomain.com`). Falls back to `MAILGUN_SANDBOX_DOMAIN` if unset |
@@ -102,13 +101,22 @@ then:
 ```bash
 npx vercel integration add neon      # create the database, link to project
 npx vercel env pull                  # brings DATABASE_URL into .env.local
-npm run db:init                      # applies scripts/schema.sql
-npm run db:migrate                   # optional: copies any Blob data over
+npm run db:init                      # fresh DB: applies scripts/schema.sql + records the ledger
+npm run db:migrate                   # existing DB: applies pending ledger migrations
+npm run db:migrate:status            # what is applied / pending (read-only)
+npm run db:check                     # proves fresh schema.sql == live schema (drift → exit 1)
+npm run db:migrate:legacy-blob       # one-time: copies old Blob-JSON data over
 npx vercel --prod                    # redeploy — repo flips to Postgres
 ```
 
-Until `DATABASE_URL` exists the repo transparently uses the Blob-JSON
-fallback — the site works either way.
+**Migrations:** `scripts/migrate.mjs` holds the ordered, idempotent list and
+records each applied name in `schema_migrations`. Add new DDL in BOTH places —
+the migration list (for production) and `scripts/schema.sql` (fresh baseline) —
+then run `npm run db:check`. The older `scripts/migrate-add-*.mjs` files are
+the pre-ledger history and are not needed on a database that ran `db:init`.
+
+In production the API refuses to start without `DATABASE_URL` (fail-fast in
+`api/_lib/config.ts`); the Blob-JSON fallback only exists for local prototypes.
 
 **Schema** (`scripts/schema.sql`): `users` (roles, email_verified,
 session_epoch, lockout counters), `auth_tokens` (hashed one-time
@@ -413,7 +421,7 @@ already excluded (Phases 1 & 2).
 **Portfolio moderation moved** from the shared `ADMIN_TOKEN` +
 `/moderation` page to admin-session at `/admin/portfolio`. `ADMIN_TOKEN`,
 `api/uploads.ts` PATCH, and `src/pages/Moderation.tsx` are removed; the env
-var can be deleted from Vercel.
+var was deleted from Vercel on 2026-09-20.
 
 Nothing here exposes password hashes, salts, session secrets, verification
 tokens, reset tokens, API keys, or private message bodies — the messages

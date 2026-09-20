@@ -4,6 +4,7 @@ import { neon } from '@neondatabase/serverless';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { runMigrations } from './migrate.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +42,11 @@ for (const stmt of statements) {
   await sql.query(stmt);
 }
 console.log(`schema applied — ${statements.length} statements OK`);
+
+// The baseline already contains every ledger migration; record them so a fresh
+// database and a migrated one report the same status (see scripts/migrate.mjs).
+await runMigrations(sql, { log: () => {} });
+console.log('migration ledger recorded');
 
 const tables = await sql`SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`;
 console.log('tables:', tables.map(t => t.tablename).join(', '));
