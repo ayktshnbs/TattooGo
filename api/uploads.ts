@@ -1,7 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createHash } from 'node:crypto';
-import { put } from '@vercel/blob';
+import { del, put } from '@vercel/blob';
+import { newId } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
+import { ipHash } from './_lib/ip.js';
+import { rateLimit, tooMany, HOUR } from './_lib/ratelimit.js';
 import {
   listApprovedPortfolio, listPortfolioByArtist,
   createPortfolioItem, countRecentPortfolioByArtist, updateProfile,
@@ -24,22 +26,17 @@ import { evaluateArtistActivation } from './auth.js';
  * function cap and reports are part of the portfolio domain).
  */
 
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+// Vercel caps request bodies at ~4.5 MB and base64 inflates by 4/3, so the
+// old 4 MB limit could never be reached — 3 MB is the real, reachable ceiling
+// (the client downscales to 1080px JPEG anyway, typically < 500 KB).
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const MAX_PER_ARTIST_PER_DAY = 10;
+const REPORTS_PER_IP_PER_HOUR = 20;
 
 const REPORT_REASONS = new Set([
   'inappropriate_content', 'stolen_work', 'spam_fake',
   'offensive_content', 'wrong_category', 'other',
 ]);
-const AUTH_SECRET_FOR_HASH = process.env.AUTH_SECRET ?? '';
-
-function clientIpHash(req: VercelRequest): string {
-  const xff = (req.headers['x-forwarded-for'] as string | undefined) ?? '';
-  const first = xff.split(',')[0]?.trim();
-  const ip = first || req.socket?.remoteAddress || '';
-  return createHash('sha256').update(ip + '|' + AUTH_SECRET_FOR_HASH).digest('hex');
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method === 'GET') {
@@ -51,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         res.setHeader('Cache-Control', 'no-store');
         return res.status(200).json(await listPortfolioByArtist(user.id));
       }
-      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=60');
+      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
       return res.status(200).json(await listApprovedPortfolio());
     }
 
@@ -63,10 +60,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (typeof itemId !== 'string' || !itemId) return res.status(400).json({ error: 'itemId required' });
         if (typeof reason !== 'string' || !REPORT_REASONS.has(reason)) return res.status(400).json({ error: 'valid reason required' });
         if (note !== undefined && (typeof note !== 'string' || note.length > 500)) return res.status(400).json({ error: 'note must be a string ≤ 500 chars' });
+        // Per-source ceiling on report rows (the per-item 24h rule lives in the repo).
+        const hash = ipHash(req);
+        if (tooMany(res, await rateLimit('report:ip', hash, REPORTS_PER_IP_PER_HOUR, HOUR))) return;
         const reporter = await getSessionUser(req);
         const outcome = await createPortfolioReport({
           itemId, reporterId: reporter?.id ?? null,
-          ipHash: clientIpHash(req),
+          ipHash: hash,
           reason, note: typeof note === 'string' ? note.trim() : undefined,
         });
         if (outcome === 'not-found' || outcome === 'not-public') return res.status(404).json({ error: 'not found' });
@@ -77,6 +77,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const user = await getSessionUser(req);
       if (!user || !user.providerType) {
         return res.status(403).json({ error: 'only signed-in artists can publish to the feed' });
+      }
+      // A suspended provider must not keep filling the store (their items are
+      // already invisible); needs_review / pending may upload to complete a profile.
+      if (user.providerStatus === 'suspended') {
+        return res.status(403).json({ error: 'your provider profile is suspended' });
       }
 
       const { title, style, tags, imageData, imageRatio } = req.body ?? {};
@@ -90,7 +95,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!match) return res.status(400).json({ error: 'imageData must be a JPEG data URL' });
       const bytes = Buffer.from(match[1], 'base64');
       if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
-        return res.status(400).json({ error: 'invalid image (JPEG, max 4MB)' });
+        return res.status(400).json({ error: 'invalid image (JPEG, max 3MB)' });
       }
 
       const dayAgo = Date.now() - 86_400_000;
@@ -99,7 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       const ratio = Number(imageRatio);
-      const id = `u${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      const id = newId('u');
       const blob = await put(`uploads/${id}.jpg`, bytes, { access: 'public', contentType: 'image/jpeg' });
 
       const item: PortfolioItem = {
@@ -117,14 +122,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         createdAt: new Date().toISOString().slice(0, 10),
         ts: Date.now(),
       };
-      await createPortfolioItem(item);
+      try {
+        await createPortfolioItem(item);
+      } catch (err) {
+        // Blob + row are two systems: if the row fails, remove the orphan file
+        // so storage can't fill with images nothing references.
+        try { await del(blob.url); } catch { /* orphan is harmless */ }
+        throw err;
+      }
       // The 3rd upload can be the trigger that completes activation — re-run
       // the gate now so the provider goes active on the same request. Passes
       // empty patch since nothing else changed; the gate reads the DB count.
+      // Best-effort: the upload already succeeded, and the next profile save
+      // re-evaluates anyway, so a failure here must not turn into a 500 that
+      // makes the client retry (and duplicate) the upload.
       if (user.providerType && user.providerStatus === 'pending_profile') {
-        const nextStatus = await evaluateArtistActivation(user, {});
-        if (nextStatus && nextStatus !== user.providerStatus) {
-          await updateProfile(user.id, { providerStatus: nextStatus });
+        try {
+          const nextStatus = await evaluateArtistActivation(user, {});
+          if (nextStatus && nextStatus !== user.providerStatus) {
+            await updateProfile(user.id, { providerStatus: nextStatus });
+          }
+        } catch (err) {
+          console.error('activation re-check failed after upload', err instanceof Error ? err.message : '');
         }
       }
       return res.status(201).json(item);

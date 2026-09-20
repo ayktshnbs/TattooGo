@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createHash } from 'node:crypto';
 import { newId, today, type UserRow } from './_lib/db.js';
 import {
   hashPassword, verifyPassword, signSession, setSessionCookie, clearSessionCookie,
@@ -12,6 +13,9 @@ import {
   countVisiblePortfolioForActivation,
 } from './_lib/repo.js';
 import { normalizeInstagram } from './_lib/instagram.js';
+import { ipHash } from './_lib/ip.js';
+import { rateLimit, tooMany, MINUTE, HOUR } from './_lib/ratelimit.js';
+import { backend, healthCheck } from './_lib/repo.js';
 import { welcomeVerifyEmail, verifyEmailAgain, passwordResetEmail } from './_lib/email.js';
 import { isTurkishCity, isInTurkeyBounds } from './_lib/cities.js';
 import { isValidStyle, MAX_STYLES } from './_lib/styles.js';
@@ -82,9 +86,31 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const VERIFY_TTL = 24 * 60 * 60 * 1000;
 const RESET_TTL = 60 * 60 * 1000;
 
+/* Abuse ceilings (fixed windows, DB-backed — see _lib/ratelimit.ts).
+ * Login has TWO layers: the per-account lockout (5 fails → 15 min) and this
+ * per-IP throttle, so one IP cannot spray many accounts, and one account
+ * cannot be locked out from a single IP any faster than the IP limit allows. */
+const LOGIN_PER_IP        = { limit: 20, window: 15 * MINUTE };
+const REGISTER_PER_IP     = { limit: 5,  window: HOUR };
+const RESET_PER_IP        = { limit: 5,  window: HOUR };
+const RESET_PER_EMAIL     = { limit: 3,  window: HOUR };
+const RESEND_PER_USER     = { limit: 3,  window: HOUR };
+
+/** Constant-work login: unknown emails cost a real scrypt too, so response
+ *  time no longer says whether the address is registered. */
+const DUMMY = hashPassword('constant-time-filler');
+const emailKey = (email: string) => createHash('sha256').update(email.toLowerCase().trim()).digest('hex');
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method === 'GET') {
+      // /api/health is rewritten here (vercel.json) — Vercel Hobby's 12-function
+      // cap rules out a dedicated file. Unauthenticated, no secrets, cheap.
+      if (req.query.health === '1') {
+        const dbOk = await healthCheck();
+        res.setHeader('Cache-Control', 'no-store');
+        return res.status(dbOk ? 200 : 503).json({ ok: dbOk, backend: backend(), db: dbOk, time: new Date().toISOString() });
+      }
       const user = await getSessionUser(req);
       if (!user) return res.status(401).json({ error: 'not signed in' });
       return res.status(200).json(ownUser(user));
@@ -106,6 +132,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // One-account / multi-mode: registration collects ONLY name/email/password.
       // Every account is a base (customer) account; a provider profile is added
       // later via 'create-provider'. A legacy `role` field in the body is ignored.
+      if (tooMany(res, await rateLimit('register:ip', ipHash(req), REGISTER_PER_IP.limit, REGISTER_PER_IP.window),
+        'too many sign-ups from this network — try again later')) return;
       const { email, password, name } = req.body ?? {};
       if (typeof email !== 'string' || !EMAIL_RE.test(email) || email.length > 120) {
         return res.status(400).json({ error: 'valid email required' });
@@ -162,11 +190,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof email !== 'string' || typeof password !== 'string') {
         return res.status(400).json({ error: 'email and password required' });
       }
+      if (tooMany(res, await rateLimit('login:ip', ipHash(req), LOGIN_PER_IP.limit, LOGIN_PER_IP.window),
+        'too many attempts — try again in a few minutes')) return;
       const user = await findUserByEmail(email);
-      // Identical error for unknown email and wrong password — no enumeration.
-      if (!user) return res.status(401).json({ error: 'invalid email or password' });
-      // Deactivated accounts cannot log in (also blocked by email tombstone).
-      if (user.deactivatedAt) return res.status(401).json({ error: 'invalid email or password' });
+      // Identical error AND identical work for unknown email / wrong password /
+      // deactivated account — no enumeration by message or by timing.
+      if (!user || user.deactivatedAt) {
+        verifyPassword(password, DUMMY.salt, DUMMY.passHash);
+        return res.status(401).json({ error: 'invalid email or password' });
+      }
       if (isLocked(user)) {
         return res.status(429).json({ error: 'too many attempts — try again in a few minutes' });
       }
@@ -192,6 +224,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const user = await getSessionUser(req);
       if (!user) return res.status(401).json({ error: 'sign in required' });
       if (user.emailVerified) return res.status(200).json({ ok: true, already: true });
+      if (tooMany(res, await rateLimit('resend:user', user.id, RESEND_PER_USER.limit, RESEND_PER_USER.window))) return;
       const token = await createToken(user.id, 'verify', VERIFY_TTL);
       await verifyEmailAgain(user.email, user.name, token);
       return res.status(200).json({ ok: true });
@@ -202,7 +235,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (typeof email !== 'string' || !EMAIL_RE.test(email)) {
         return res.status(400).json({ error: 'valid email required' });
       }
-      const user = await findUserByEmail(email);
+      // Per-IP and per-address ceilings: reset mail can't be used to flood an
+      // inbox or to burn Mailgun quota. The address limit is keyed on a hash.
+      if (tooMany(res, await rateLimit('reset:ip', ipHash(req), RESET_PER_IP.limit, RESET_PER_IP.window))) return;
+      const perEmail = await rateLimit('reset:email', emailKey(email), RESET_PER_EMAIL.limit, RESET_PER_EMAIL.window);
+      const user = perEmail.allowed ? await findUserByEmail(email) : null;   // over the limit → silently no mail
       if (user) {
         const token = await createToken(user.id, 'reset', RESET_TTL);
         await passwordResetEmail(user.email, user.name, token);

@@ -1,10 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSessionUser } from './_lib/auth.js';
-import { listReviewsByArtist, listReviewsByCustomer, createReview } from './_lib/repo.js';
+import { listReviewsByArtist, listReviewsByCustomer, listPublicReviewsForArtist, createReview } from './_lib/repo.js';
 
 /**
  * Reviews — only real customers, only after a completed job, one per offer.
- *   GET  /api/reviews?artistId=<id> → public reviews for an artist
+ *   GET  /api/reviews?artistId=<id> → public projection (no customer/offer ids),
+ *                                      only for active, non-deactivated providers
  *   GET  /api/reviews               → artist: received · customer: written
  *   POST /api/reviews {offerId, rating, text}
  */
@@ -14,7 +15,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (req.method === 'GET') {
       const artistId = req.query.artistId;
       if (typeof artistId === 'string') {
-        return res.status(200).json(await listReviewsByArtist(artistId));
+        const reviews = await listPublicReviewsForArtist(artistId);
+        if (!reviews) return res.status(404).json({ error: 'artist not found' });
+        res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
+        return res.status(200).json(reviews);
       }
       const user = await getSessionUser(req);
       if (!user) return res.status(401).json({ error: 'sign in required' });

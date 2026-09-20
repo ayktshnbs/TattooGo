@@ -1,5 +1,5 @@
 import { neon } from '@neondatabase/serverless';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { DATABASE_URL } from './config.js';
 import {
   readCollection, writeCollection, readFeedIndex, writeFeedIndex, newId, today,
@@ -26,6 +26,17 @@ const usePg = DATABASE_URL.length > 0;
 const sql = usePg ? neon(DATABASE_URL) : null!;
 
 export const backend = (): 'postgres' | 'blob' => (usePg ? 'postgres' : 'blob');
+
+/** Liveness probe for /api/health: one trivial round trip, never throws. */
+export async function healthCheck(): Promise<boolean> {
+  if (!usePg) return true;
+  try {
+    const rows = await sql`SELECT 1 AS ok`;
+    return Number(rows[0]?.ok) === 1;
+  } catch {
+    return false;
+  }
+}
 
 /* =========================== row mappers (pg) =========================== */
 
@@ -181,18 +192,27 @@ export function isLocked(u: UserRow): boolean {
   return typeof u.lockUntil === 'number' && u.lockUntil > Date.now();
 }
 
+/** Count a failed login. A lock that has already expired starts a FRESH
+ *  window (count restarts at 1) — previously the counter stayed ≥ 5 after the
+ *  lock lapsed, so a single further failure re-locked the account for 15 min. */
 export async function recordLoginFailure(userId: string): Promise<void> {
+  const now = Date.now();
   if (usePg) {
-    await sql`UPDATE users SET failed_logins = failed_logins + 1,
-      lock_until = CASE WHEN failed_logins + 1 >= ${MAX_LOGIN_FAILS} THEN ${Date.now() + LOCK_MS} ELSE lock_until END
+    await sql`UPDATE users SET
+      failed_logins = CASE WHEN lock_until IS NOT NULL AND lock_until <= ${now} THEN 1 ELSE failed_logins + 1 END,
+      lock_until = CASE
+        WHEN lock_until IS NOT NULL AND lock_until <= ${now} THEN NULL
+        WHEN failed_logins + 1 >= ${MAX_LOGIN_FAILS} THEN ${now + LOCK_MS}
+        ELSE lock_until END
       WHERE id = ${userId}`;
     return;
   }
   const users = await readCollection<UserRow>('users');
   const u = users.find(x => x.id === userId);
   if (u) {
+    if (typeof u.lockUntil === 'number' && u.lockUntil <= now) { u.lockUntil = undefined; u.failedLogins = 0; }
     u.failedLogins = (u.failedLogins ?? 0) + 1;
-    if (u.failedLogins >= MAX_LOGIN_FAILS) { u.lockUntil = Date.now() + LOCK_MS; u.failedLogins = 0; }
+    if (u.failedLogins >= MAX_LOGIN_FAILS) { u.lockUntil = now + LOCK_MS; u.failedLogins = 0; }
     await writeCollection('users', users);
   }
 }
@@ -336,7 +356,13 @@ export async function updateProfile(userId: string, p: ProfileUpdate): Promise<v
         WHEN ${p.instagramHandle === undefined} THEN instagram_handle
         ELSE ${p.instagramHandle ?? null}
       END,
-      provider_status = COALESCE(${p.providerStatus ?? null}, provider_status)
+      provider_status = CASE
+        WHEN ${p.providerStatus ?? null}::text IS NULL THEN provider_status
+        -- Admin-set states win at the SQL level: an in-flight self-service
+        -- update evaluated before a suspension can never flip it back.
+        WHEN provider_status IN ('suspended', 'needs_review') THEN provider_status
+        ELSE ${p.providerStatus ?? null}
+      END
       WHERE id = ${userId}`;
     return;
   }
@@ -353,7 +379,9 @@ export async function updateProfile(userId: string, p: ProfileUpdate): Promise<v
   if (p.longitude !== undefined) u.longitude = p.longitude ?? undefined;
   if (p.isPublicLocation !== undefined) u.isPublicLocation = p.isPublicLocation;
   if (p.instagramHandle !== undefined) u.instagramHandle = p.instagramHandle ?? undefined;
-  if (p.providerStatus !== undefined) u.providerStatus = p.providerStatus;
+  if (p.providerStatus !== undefined && u.providerStatus !== 'suspended' && u.providerStatus !== 'needs_review') {
+    u.providerStatus = p.providerStatus;
+  }
   await writeCollection('users', users);
 }
 
@@ -382,11 +410,18 @@ export async function setProviderType(userId: string, type: 'artist' | 'studio')
 
 const hashToken = (raw: string) => createHash('sha256').update(raw).digest('hex');
 
+/** Expired tokens are dead weight after this long; swept opportunistically. */
+const TOKEN_GC_AFTER_MS = 7 * 86_400_000;
+
 export async function createToken(userId: string, kind: 'verify' | 'reset', ttlMs: number): Promise<string> {
-  const raw = newId('t') + createHash('sha256').update(`${userId}${Math.random()}${Date.now()}`).digest('hex').slice(0, 32);
+  // 256 bits from the CSPRNG. Only the sha256 is stored; the raw goes in the email.
+  const raw = randomBytes(32).toString('hex');
   const row: TokenRow = { tokenHash: hashToken(raw), userId, kind, expiresAt: Date.now() + ttlMs };
   if (usePg) {
     await sql`INSERT INTO auth_tokens (token_hash, user_id, kind, expires_at) VALUES (${row.tokenHash}, ${userId}, ${kind}, ${row.expiresAt})`;
+    // Token creation is rare, so it is a cheap place to sweep long-expired rows
+    // (awaited: a serverless instance may be frozen right after the response).
+    try { await sql`DELETE FROM auth_tokens WHERE expires_at < ${Date.now() - TOKEN_GC_AFTER_MS}`; } catch { /* housekeeping */ }
   } else {
     const tokens = await readCollection<TokenRow>('tokens');
     await writeCollection('tokens', [row, ...tokens.filter(t => t.expiresAt > Date.now()).slice(0, 200)]);
@@ -458,24 +493,35 @@ export async function createRequest(r: RequestRow): Promise<void> {
   await writeCollection('requests', [r, ...requests]);
 }
 
-/** Cancel an open request owned by the customer. */
-export async function cancelRequest(id: string, customerId: string): Promise<'ok' | 'not-found' | 'forbidden' | 'not-open'> {
+export type CancelOutcome =
+  | { result: 'ok'; referenceUrl?: string }
+  | { result: 'not-found' }
+  | { result: 'forbidden' }
+  | { result: 'not-open' };
+
+/** Cancel an open request owned by the customer. The reference photo is
+ *  detached in the same statement (nobody needs it after a cancel) and its
+ *  URL handed back so the caller can delete the Blob file. */
+export async function cancelRequest(id: string, customerId: string): Promise<CancelOutcome> {
   if (usePg) {
-    const rows = await sql`UPDATE requests SET status = 'cancelled'
-      WHERE id = ${id} AND customer_id = ${customerId} AND status = 'open' RETURNING id`;
-    if (rows[0]) return 'ok';
+    const rows = await sql`UPDATE requests SET status = 'cancelled', reference_url = NULL
+      WHERE id = ${id} AND customer_id = ${customerId} AND status = 'open'
+      RETURNING (SELECT reference_url FROM requests r2 WHERE r2.id = requests.id) AS reference_url`;
+    if (rows[0]) return { result: 'ok', referenceUrl: (rows[0].reference_url as string | null) ?? undefined };
     const probe = await sql`SELECT customer_id, status FROM requests WHERE id = ${id} LIMIT 1`;
-    if (!probe[0]) return 'not-found';
-    return (probe[0].customer_id as string) !== customerId ? 'forbidden' : 'not-open';
+    if (!probe[0]) return { result: 'not-found' };
+    return { result: (probe[0].customer_id as string) !== customerId ? 'forbidden' : 'not-open' };
   }
   const requests = await readCollection<RequestRow>('requests');
   const r = requests.find(x => x.id === id);
-  if (!r) return 'not-found';
-  if (r.customerId !== customerId) return 'forbidden';
-  if (r.status !== 'open') return 'not-open';
+  if (!r) return { result: 'not-found' };
+  if (r.customerId !== customerId) return { result: 'forbidden' };
+  if (r.status !== 'open') return { result: 'not-open' };
+  const referenceUrl = r.referenceUrl;
   r.status = 'cancelled';
+  r.referenceUrl = undefined;
   await writeCollection('requests', requests);
-  return 'ok';
+  return { result: 'ok', referenceUrl };
 }
 
 /* =============================== offers =============================== */
@@ -495,12 +541,20 @@ export async function hasOffer(requestId: string, artistId: string): Promise<boo
   return (await readCollection<OfferRow>('offers')).some(o => o.requestId === requestId && o.artistId === artistId);
 }
 
+/** Offer statuses that constitute a live business relationship for DMs. A
+ *  rejected offer does NOT keep the channel open forever (spam vector). */
+const DM_OFFER_STATUSES: OfferRow['status'][] = ['sent', 'accepted', 'completed'];
+
 export async function offerExistsBetween(userA: string, userB: string): Promise<boolean> {
   if (usePg) {
-    return (await sql`SELECT 1 FROM offers WHERE (customer_id = ${userA} AND artist_id = ${userB}) OR (customer_id = ${userB} AND artist_id = ${userA}) LIMIT 1`).length > 0;
+    return (await sql`SELECT 1 FROM offers
+      WHERE ((customer_id = ${userA} AND artist_id = ${userB}) OR (customer_id = ${userB} AND artist_id = ${userA}))
+        AND status = ANY(${DM_OFFER_STATUSES})
+      LIMIT 1`).length > 0;
   }
   const offers = await readCollection<OfferRow>('offers');
-  return offers.some(o => (o.customerId === userA && o.artistId === userB) || (o.customerId === userB && o.artistId === userA));
+  return offers.some(o => DM_OFFER_STATUSES.includes(o.status)
+    && ((o.customerId === userA && o.artistId === userB) || (o.customerId === userB && o.artistId === userA)));
 }
 
 export interface NewOfferInput {
@@ -718,6 +772,39 @@ export async function listReviewsByArtist(artistId: string): Promise<ReviewRow[]
   return (await readCollection<ReviewRow>('reviews')).filter(r => r.artistId === artistId).sort((a, b) => b.ts - a.ts);
 }
 
+/** What an anonymous visitor may see of a review: no customer id, no offer id. */
+export interface PublicReview {
+  id: string; rating: number; text: string; customerName: string; requestTitle: string; createdAt: string;
+}
+
+/** Public reviews for an artist. Applies the SAME visibility rule as the
+ *  public profile: the artist must be an active, non-deactivated provider
+ *  (null → treat as 404), hidden reviews are excluded, and the projection
+ *  strips customer_id / offer_id / ts. */
+export async function listPublicReviewsForArtist(artistId: string): Promise<PublicReview[] | null> {
+  if (usePg) {
+    const rows = await sql`
+      SELECT r.id, r.rating, r.text, r.customer_name, r.request_title, r.created_at,
+             u.provider_type, u.provider_status, u.deactivated_at
+      FROM users u
+      LEFT JOIN reviews r ON r.artist_id = u.id AND r.hidden_at IS NULL
+      WHERE u.id = ${artistId} AND u.provider_type IS NOT NULL
+        AND u.provider_status = 'active' AND u.deactivated_at IS NULL
+      ORDER BY r.ts DESC LIMIT 200`;
+    if (rows.length === 0) return null;   // not a visible provider
+    return rows.filter(r => r.id != null).map(r => ({
+      id: r.id as string, rating: Number(r.rating), text: r.text as string,
+      customerName: r.customer_name as string, requestTitle: r.request_title as string,
+      createdAt: r.created_at as string,
+    }));
+  }
+  const user = (await readCollection<UserRow>('users')).find(u => u.id === artistId);
+  if (!user || !user.providerType || user.providerStatus !== 'active' || user.deactivatedAt) return null;
+  return (await listReviewsByArtist(artistId)).map(r => ({
+    id: r.id, rating: r.rating, text: r.text, customerName: r.customerName, requestTitle: r.requestTitle, createdAt: r.createdAt,
+  }));
+}
+
 export async function listReviewsByCustomer(customerId: string): Promise<ReviewRow[]> {
   if (usePg) return (await sql`SELECT * FROM reviews WHERE customer_id = ${customerId} ORDER BY ts DESC LIMIT 200`).map(mapReview);
   return (await readCollection<ReviewRow>('reviews')).filter(r => r.customerId === customerId).sort((a, b) => b.ts - a.ts);
@@ -921,8 +1008,18 @@ export async function listNotifications(userId: string, role: string): Promise<N
   }));
 }
 
+/** Mark the user's notifications read — all of them, or a given id list.
+ *  Scoped by user_id so one account can never touch another's rows. */
+export async function markNotificationsRead(userId: string, ids: string[] | 'all'): Promise<number> {
+  if (!usePg) return 0;
+  const rows = ids === 'all'
+    ? await sql`UPDATE notifications SET read = TRUE WHERE user_id = ${userId} AND read = FALSE RETURNING id`
+    : await sql`UPDATE notifications SET read = TRUE WHERE user_id = ${userId} AND read = FALSE AND id = ANY(${ids}) RETURNING id`;
+  return rows.length;
+}
+
 /* ===================== premium subscriptions (Creem) ===================== */
-/* Written ONLY by the verified webhook (upsertSubscriptionFromWebhook).
+/* Written ONLY by the verified webhook / reconciliation (applyWebhookEvent).
  * Requires Postgres; in the legacy Blob fallback there is no premium (all
  * lookups resolve to "no subscription", which is safe: with the gate off it
  * changes nothing, and with the gate on it fails closed). */
@@ -961,18 +1058,20 @@ export interface SubscriptionUpsert {
   currentPeriodStart?: number;
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
+  /** Provider-side event time (ms). Older than the row's last_event_at → ignored. */
+  eventAt: number;
 }
 
-/** Upsert the one subscription row for a user (one per provider). */
-export async function upsertSubscriptionFromWebhook(u: SubscriptionUpsert): Promise<void> {
-  if (!usePg) return;
-  const now = Date.now();
-  await sql`INSERT INTO provider_subscriptions
+function subscriptionUpsertQuery(u: SubscriptionUpsert, now: number) {
+  // Ordering guard: webhooks can arrive out of order / be retried later. The
+  // conditional DO UPDATE only applies events at least as new as the last one
+  // applied, so a stale "active" can never resurrect a newer "canceled".
+  return sql`INSERT INTO provider_subscriptions
     (id, user_id, provider, provider_customer_id, provider_subscription_id, status,
-     current_period_start, current_period_end, cancel_at_period_end, created_at, updated_at)
+     current_period_start, current_period_end, cancel_at_period_end, last_event_at, created_at, updated_at)
     VALUES (${newId('sub')}, ${u.userId}, 'creem', ${u.providerCustomerId ?? null},
      ${u.providerSubscriptionId ?? null}, ${u.status}, ${u.currentPeriodStart ?? null},
-     ${u.currentPeriodEnd ?? null}, ${u.cancelAtPeriodEnd ?? false}, ${now}, ${now})
+     ${u.currentPeriodEnd ?? null}, ${u.cancelAtPeriodEnd ?? false}, ${u.eventAt}, ${now}, ${now})
     ON CONFLICT (user_id, provider) DO UPDATE SET
       provider_customer_id     = COALESCE(EXCLUDED.provider_customer_id, provider_subscriptions.provider_customer_id),
       provider_subscription_id = COALESCE(EXCLUDED.provider_subscription_id, provider_subscriptions.provider_subscription_id),
@@ -980,7 +1079,33 @@ export async function upsertSubscriptionFromWebhook(u: SubscriptionUpsert): Prom
       current_period_start     = EXCLUDED.current_period_start,
       current_period_end       = EXCLUDED.current_period_end,
       cancel_at_period_end     = EXCLUDED.cancel_at_period_end,
-      updated_at               = ${now}`;
+      last_event_at            = EXCLUDED.last_event_at,
+      updated_at               = ${now}
+    WHERE provider_subscriptions.last_event_at IS NULL
+       OR EXCLUDED.last_event_at >= provider_subscriptions.last_event_at
+    RETURNING id`;
+}
+
+/**
+ * Idempotent webhook application: the event-id ledger insert and the
+ * subscription upsert commit TOGETHER. If the upsert fails, the ledger row
+ * rolls back too, so the provider's retry is processed instead of being
+ * treated as a duplicate (the previous two-statement version lost the event).
+ */
+export async function applyWebhookEvent(eventId: string, u: SubscriptionUpsert): Promise<'applied' | 'stale' | 'duplicate'> {
+  if (!usePg) return 'applied';
+  try {
+    const [, upsert] = await sql.transaction([
+      sql`INSERT INTO webhook_events (event_id, provider, received_at) VALUES (${eventId}, 'creem', ${Date.now()})`,
+      subscriptionUpsertQuery(u, Date.now()),
+    ]);
+    return upsert.length > 0 ? 'applied' : 'stale';
+  } catch (err) {
+    // Only the ledger's own primary key means "seen before"; any other unique
+    // violation (e.g. a subscription id mapped to two users) must surface.
+    if (err instanceof Error && /webhook_events_pkey/.test(err.message)) return 'duplicate';
+    throw err;
+  }
 }
 
 /* ========================= account deletion ========================= */
@@ -1011,44 +1136,36 @@ export async function deactivateAccount(userId: string): Promise<DeletionOutcome
   const rq = await sql`SELECT reference_url FROM requests WHERE customer_id = ${userId} AND reference_url IS NOT NULL`;
   const blobUrls = [...pf.map(r => r.image_url as string), ...rq.map(r => r.reference_url as string)].filter(Boolean);
 
-  const ent = await sql`SELECT
-    (SELECT COUNT(*)::int FROM offers   WHERE artist_id = ${userId} OR customer_id = ${userId}) offers,
-    (SELECT COUNT(*)::int FROM reviews  WHERE artist_id = ${userId} OR customer_id = ${userId}) reviews,
-    (SELECT COUNT(*)::int FROM messages WHERE from_id = ${userId} OR to_id = ${userId})       messages`;
-  const hasRecords = (Number(ent[0].offers) + Number(ent[0].reviews) + Number(ent[0].messages)) > 0;
-
-  if (!hasRecords) {
-    await sql`DELETE FROM users WHERE id = ${userId}`;   // cascades requests/portfolio/tokens/subs
-    return { mode: 'deleted', blobUrls };
-  }
+  // Hard delete only when the entanglement check holds INSIDE the same
+  // statement — an offer/message landing between a separate count and the
+  // delete can no longer be cascaded away.
+  const deleted = await sql`DELETE FROM users WHERE id = ${userId}
+    AND NOT EXISTS (SELECT 1 FROM offers   WHERE artist_id = ${userId} OR customer_id = ${userId})
+    AND NOT EXISTS (SELECT 1 FROM reviews  WHERE artist_id = ${userId} OR customer_id = ${userId})
+    AND NOT EXISTS (SELECT 1 FROM messages WHERE from_id = ${userId} OR to_id = ${userId})
+    RETURNING id`;   // cascades requests/portfolio/tokens/subs
+  if (deleted.length > 0) return { mode: 'deleted', blobUrls };
 
   // Soft path — preserve transaction records, scrub everything personal.
+  // One transaction: either the whole scrub lands or none of it does (a
+  // half-applied version left a live email + cancelled requests before).
   const tomb = `deleted+${userId}@deleted.invalid`;
-  await sql`DELETE FROM portfolio_items WHERE artist_id = ${userId}`;
-  await sql`DELETE FROM auth_tokens WHERE user_id = ${userId}`;
-  await sql`UPDATE requests SET status = 'cancelled' WHERE customer_id = ${userId} AND status = 'open'`;
-  await sql`UPDATE users SET
+  await sql.transaction([
+    sql`DELETE FROM portfolio_items WHERE artist_id = ${userId}`,
+    sql`DELETE FROM auth_tokens WHERE user_id = ${userId}`,
+    sql`UPDATE requests SET status = 'cancelled', reference_url = NULL WHERE customer_id = ${userId} AND status = 'open'`,
+    sql`UPDATE users SET
       name = 'Deleted account',
       email = ${tomb},
       bio = NULL, city = NULL, district = NULL, public_address_label = NULL,
       latitude = NULL, longitude = NULL, is_public_location = FALSE, styles = '{}',
+      instagram_handle = NULL,
       provider_status = CASE WHEN provider_status IS NULL THEN NULL ELSE 'suspended' END,
       deactivated_at = ${Date.now()},
       session_epoch = session_epoch + 1
-    WHERE id = ${userId}`;
+    WHERE id = ${userId}`,
+  ]);
   return { mode: 'deactivated', blobUrls };
-}
-
-/** Idempotency guard: true the FIRST time an event id is seen, false on repeats. */
-export async function recordWebhookEvent(eventId: string): Promise<boolean> {
-  if (!usePg) return true;
-  try {
-    await sql`INSERT INTO webhook_events (event_id, provider, received_at) VALUES (${eventId}, 'creem', ${Date.now()})`;
-    return true;
-  } catch (err) {
-    if (err instanceof Error && /unique|duplicate/i.test(err.message)) return false;
-    throw err;
-  }
 }
 
 /* ================== portfolio reports / soft-hide ================== */
@@ -1062,9 +1179,17 @@ export interface CreateReportInput {
 }
 export type ReportOutcome = 'ok' | 'rate-limited' | 'not-found' | 'not-public';
 
-/** Create a report row + refresh the item's report_count. If the distinct
- *  reporter count crosses 3, auto-hide the item (hidden_by='auto:reports').
- *  Rate-limit: at most 1 report per (item, ipHash) per 24h. */
+/** Distinct signed-in accounts needed before an item is auto-hidden. */
+export const AUTO_HIDE_REPORTERS = 3;
+
+/** Create a report row + refresh the item's report_count.
+ *
+ *  Auto-hide counts DISTINCT AUTHENTICATED reporters only (≥ 3 accounts →
+ *  hidden_by='auto:reports'). Anonymous reports are recorded for the admin
+ *  queue and the tally but never trigger auto-hide: IP addresses are cheap
+ *  (VPN / mobile NAT) and the forwarded header is not something to build a
+ *  takedown on. Rate-limit: 1 report per (item, ipHash) and per (item,
+ *  account) per 24h. */
 export async function createPortfolioReport(input: CreateReportInput): Promise<ReportOutcome> {
   if (!usePg) return 'ok';
   // Item must exist AND be publicly visible right now (not already hidden,
@@ -1079,62 +1204,46 @@ export async function createPortfolioReport(input: CreateReportInput): Promise<R
     && row.provider_status === 'active' && row.deactivated_at == null;
   if (!publiclyVisible) return 'not-public';
 
-  // Rate limit: at most 1 per (item, ipHash) in 24h.
+  // Rate limit: at most 1 per (item, ipHash) — and per (item, account) — in 24h.
   const since = Date.now() - 24 * 60 * 60 * 1000;
   const existing = await sql`SELECT id FROM portfolio_reports
-    WHERE item_id = ${input.itemId} AND reporter_ip_hash = ${input.ipHash}
-      AND created_at > ${since} LIMIT 1`;
+    WHERE item_id = ${input.itemId} AND created_at > ${since}
+      AND (reporter_ip_hash = ${input.ipHash} OR (${input.reporterId}::text IS NOT NULL AND reporter_id = ${input.reporterId}))
+    LIMIT 1`;
   if (existing.length > 0) return 'rate-limited';
 
-  await sql`INSERT INTO portfolio_reports (id, item_id, reporter_id, reporter_ip_hash, reason, note, created_at)
-    VALUES (${newId('rpt')}, ${input.itemId}, ${input.reporterId}, ${input.ipHash},
-            ${input.reason}, ${input.note ?? null}, ${Date.now()})`;
-  // Refresh count + auto-hide if it just crossed 3 distinct sources.
+  // Insert + tally + auto-hide in ONE statement. report_count = distinct
+  // sources (accounts, else IP hashes) for the admin queue; the auto-hide
+  // threshold looks only at distinct signed-in accounts.
   const now = Date.now();
-  await sql`UPDATE portfolio_items p SET
-    report_count = (SELECT COUNT(DISTINCT reporter_ip_hash) FROM portfolio_reports WHERE item_id = ${input.itemId}),
-    hidden_at = CASE
-      WHEN hidden_at IS NOT NULL THEN hidden_at
-      WHEN (SELECT COUNT(DISTINCT reporter_ip_hash) FROM portfolio_reports WHERE item_id = ${input.itemId}) >= 3
-        THEN ${now}
-      ELSE NULL
-    END,
-    hidden_by = CASE
-      WHEN hidden_at IS NOT NULL THEN hidden_by
-      WHEN (SELECT COUNT(DISTINCT reporter_ip_hash) FROM portfolio_reports WHERE item_id = ${input.itemId}) >= 3
-        THEN 'auto:reports'
-      ELSE hidden_by
-    END
-    WHERE p.id = ${input.itemId}`;
+  await sql`WITH ins AS (
+      INSERT INTO portfolio_reports (id, item_id, reporter_id, reporter_ip_hash, reason, note, created_at)
+      VALUES (${newId('rpt')}, ${input.itemId}, ${input.reporterId}, ${input.ipHash},
+              ${input.reason}, ${input.note ?? null}, ${now})
+      RETURNING item_id
+    ), tally AS (
+      SELECT
+        COUNT(DISTINCT COALESCE(reporter_id, 'ip:' || reporter_ip_hash))::int AS sources,
+        COUNT(DISTINCT reporter_id)::int AS accounts
+      FROM (
+        SELECT reporter_id, reporter_ip_hash FROM portfolio_reports WHERE item_id = ${input.itemId}
+        UNION ALL
+        SELECT ${input.reporterId}::text, ${input.ipHash}::text
+      ) all_reports
+    )
+    UPDATE portfolio_items p SET
+      report_count = tally.sources,
+      hidden_at = CASE
+        WHEN p.hidden_at IS NOT NULL THEN p.hidden_at
+        WHEN tally.accounts >= ${AUTO_HIDE_REPORTERS} THEN ${now}
+        ELSE NULL END,
+      hidden_by = CASE
+        WHEN p.hidden_at IS NOT NULL THEN p.hidden_by
+        WHEN tally.accounts >= ${AUTO_HIDE_REPORTERS} THEN 'auto:reports'
+        ELSE p.hidden_by END
+    FROM tally, ins
+    WHERE p.id = ins.item_id`;
   return 'ok';
-}
-
-/** Admin actions on a portfolio item. Return prior state for the audit log. */
-export async function adminHidePortfolioItem(itemId: string, adminId: string) {
-  if (!usePg) return { ok: false as const };
-  const rows = await sql`UPDATE portfolio_items SET hidden_at = ${Date.now()}, hidden_by = ${adminId}
-    WHERE id = ${itemId} AND hidden_at IS NULL RETURNING id`;
-  return rows.length === 1 ? { ok: true as const } : { ok: false as const };
-}
-export async function adminUnhidePortfolioItem(itemId: string) {
-  if (!usePg) return { ok: false as const };
-  const rows = await sql`UPDATE portfolio_items SET hidden_at = NULL, hidden_by = NULL
-    WHERE id = ${itemId} AND hidden_at IS NOT NULL RETURNING id`;
-  return rows.length === 1 ? { ok: true as const } : { ok: false as const };
-}
-export async function adminDeletePortfolioItem(itemId: string) {
-  if (!usePg) return { ok: false as const, imageUrl: undefined };
-  const rows = await sql`DELETE FROM portfolio_items WHERE id = ${itemId} RETURNING image_url`;
-  return rows.length === 1
-    ? { ok: true as const, imageUrl: rows[0].image_url as string }
-    : { ok: false as const, imageUrl: undefined };
-}
-
-export async function adminMarkReportsReviewed(itemId: string, adminId: string): Promise<number> {
-  if (!usePg) return 0;
-  const rows = await sql`UPDATE portfolio_reports SET reviewed_at = ${Date.now()}, reviewed_by = ${adminId}
-    WHERE item_id = ${itemId} AND reviewed_at IS NULL RETURNING id`;
-  return rows.length;
 }
 
 /** Admin view of items with any reports (reviewed or not) — reported queue. */

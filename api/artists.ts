@@ -43,7 +43,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const rating = reviews.length
         ? Math.round((reviews.reduce((s, r) => s + r.rating, 0) / reviews.length) * 10) / 10
         : null;
-      res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=120');
+      // Short edge window: a suspension / hide must reach the public within
+      // seconds, not the ~2 min the previous 30/120 pair allowed.
+      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
       return res.status(200).json({
         profile: { ...publicUser(user), rating, reviewCount: reviews.length, completedJobs },
         portfolio,
@@ -72,7 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       q: typeof req.query.q === 'string' ? req.query.q : undefined,
       style: styleFilter,
     });
-    res.setHeader('Cache-Control', 's-maxage=30, stale-while-revalidate=120');
+    res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=30');
     return res.status(200).json(artists);
   } catch (err) {
     console.error('artists api error', err);

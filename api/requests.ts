@@ -1,11 +1,13 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { put } from '@vercel/blob';
+import { del, put } from '@vercel/blob';
 import { newId, today, type RequestRow } from './_lib/db.js';
 import { getSessionUser } from './_lib/auth.js';
 import {
   listOpenRequests, listRequestsByCustomer, getRequestById, createRequest, cancelRequest, hasOffer,
 } from './_lib/repo.js';
 import { isValidStyle } from './_lib/styles.js';
+import { ipHash } from './_lib/ip.js';
+import { rateLimit, tooMany, HOUR, DAY } from './_lib/ratelimit.js';
 
 /**
  * Tattoo requests (customer briefs).
@@ -15,7 +17,11 @@ import { isValidStyle } from './_lib/styles.js';
  *   PATCH /api/requests {id, action:'cancel'}
  */
 
-const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+// Vercel's ~4.5 MB body cap minus base64 overhead: 3 MB is the reachable limit.
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+// Creating a brief fans out to every active provider's board — cap the rate.
+const REQUESTS_PER_USER_PER_DAY = 10;
+const REQUESTS_PER_IP_PER_HOUR = 30;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
@@ -52,6 +58,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (req.method === 'POST') {
       // Any signed-in user can create a request — customer mode is universal.
+      if (tooMany(res, await rateLimit('request:user', user.id, REQUESTS_PER_USER_PER_DAY, DAY),
+        'daily request limit reached — try again tomorrow')) return;
+      if (tooMany(res, await rateLimit('request:ip', ipHash(req), REQUESTS_PER_IP_PER_HOUR, HOUR))) return;
       const { title, description, style, placement, size, color, city, budgetMin, budgetMax, imageData } = req.body ?? {};
       if (typeof title !== 'string' || !title.trim() || title.length > 120) {
         return res.status(400).json({ error: 'title required (max 120 chars)' });
@@ -103,9 +112,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(400).json({ error: 'id and action=cancel required' });
       }
       const outcome = await cancelRequest(id, user.id);
-      if (outcome === 'not-found') return res.status(404).json({ error: 'not found' });
-      if (outcome === 'forbidden') return res.status(403).json({ error: 'forbidden' });
-      if (outcome === 'not-open') return res.status(409).json({ error: 'only open requests can be cancelled' });
+      if (outcome.result === 'not-found') return res.status(404).json({ error: 'not found' });
+      if (outcome.result === 'forbidden') return res.status(403).json({ error: 'forbidden' });
+      if (outcome.result === 'not-open') return res.status(409).json({ error: 'only open requests can be cancelled' });
+      // The reference photo has no further use once cancelled — free the Blob.
+      if (outcome.referenceUrl) { try { await del(outcome.referenceUrl); } catch { /* orphan is harmless */ } }
       return res.status(200).json({ ok: true });
     }
 
