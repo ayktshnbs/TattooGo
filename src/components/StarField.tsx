@@ -1,4 +1,26 @@
 import { useEffect, useRef } from 'react';
+import planet1 from '../assets/planets/planet-1.png';
+import planet2 from '../assets/planets/planet-2.png';
+import planet3 from '../assets/planets/planet-3.png';
+import planet4 from '../assets/planets/planet-4.png';
+import planet5 from '../assets/planets/planet-5.png';
+
+/** Hand-drawn planet artwork (transparent PNGs), baked into the nebula layer. */
+const PLANET_ART = [planet1, planet2, planet3, planet4, planet5];
+
+/**
+ * Where the planets sit — the same three spots and radii the old drawn
+ * circles used, plus two more so every artwork appears once. Radii are a
+ * fraction of max(w,h): tiny and distant, never competing with the wordmark.
+ * `rot` gives each sphere its own tilt so the set doesn't read as stamps.
+ */
+const PLANETS: { cx: number; cy: number; r: number; art: number; rot: number }[] = [
+  { cx: 0.18, cy: 0.22, r: 0.012, art: 0, rot: -0.35 },
+  { cx: 0.85, cy: 0.75, r: 0.018, art: 2, rot: 0.25 },
+  { cx: 0.72, cy: 0.12, r: 0.008, art: 3, rot: 0.6 },
+  { cx: 0.08, cy: 0.70, r: 0.014, art: 1, rot: -0.15 },
+  { cx: 0.93, cy: 0.32, r: 0.010, art: 4, rot: 0.9 },
+];
 
 /**
  * Cinematic deep-space hero background.
@@ -46,6 +68,18 @@ export function StarField() {
     // Pre-rendered nebula/background layer — repainted only on resize.
     const nebula = document.createElement('canvas');
     const nctx = nebula.getContext('2d')!;
+
+    // Planet artwork: decode once, then bake into the nebula layer. Until the
+    // PNGs arrive the sky simply has no planets — never a placeholder.
+    let planetsReady = false;
+    let disposed = false;
+    const planetImages = PLANET_ART.map(src => { const img = new Image(); img.decoding = 'async'; img.src = src; return img; });
+    Promise.all(planetImages.map(img => img.decode().catch(() => { /* a missing sphere is not fatal */ }))).then(() => {
+      if (disposed) return;
+      planetsReady = true;
+      paintNebula();
+      draw(0, performance.now());
+    });
 
     /** One soft cloud: a large radial gradient fading to transparent. */
     function cloud(cx: number, cy: number, radius: number, rgb: string, alpha: number) {
@@ -123,25 +157,26 @@ export function StarField() {
       cloud(w * 0.65, h * 0.35, m * 0.08, '180,200,255', 0.12);
       cloud(w * 0.65, h * 0.35, m * 0.02, '255,255,255', 0.25);
 
-      // Tiny distant planets — drawn with a subtle lighting gradient so they read as spheres, not flat circles.
-      const planets = [
-        { cx: w * 0.18, cy: h * 0.22, r: m * 0.012, rgb: '140,150,180', a: 0.4 }, // cool gray/blue
-        { cx: w * 0.85, cy: h * 0.75, r: m * 0.018, rgb: '170,140,130', a: 0.3 }, // muted rust
-        { cx: w * 0.72, cy: h * 0.12, r: m * 0.008, rgb: '110,130,150', a: 0.35 }, // deep slate
-      ];
-      for (const p of planets) {
-        const g = nctx.createLinearGradient(p.cx - p.r, p.cy - p.r, p.cx + p.r, p.cy + p.r);
-        g.addColorStop(0, `rgba(${p.rgb},${p.a})`);
-        g.addColorStop(1, `rgba(0,0,0,0.9)`);
-        nctx.fillStyle = g;
-        nctx.beginPath();
-        nctx.arc(p.cx, p.cy, p.r, 0, Math.PI * 2);
-        nctx.fill();
-        
-        // Faint atmospheric rim
-        nctx.strokeStyle = `rgba(${p.rgb},${p.a * 0.4})`;
-        nctx.lineWidth = 0.5;
-        nctx.stroke();
+      // Tiny distant planets — the drawn artwork, scaled down to the same
+      // radii the old procedural circles had. Painted once the PNGs are
+      // decoded (paintNebula is re-run then); high-quality smoothing keeps the
+      // 180px sources crisp at ~25–50px.
+      if (planetsReady) {
+        nctx.save();
+        nctx.imageSmoothingEnabled = true;
+        nctx.imageSmoothingQuality = 'high';
+        nctx.globalAlpha = 0.92;
+        for (const p of PLANETS) {
+          const img = planetImages[p.art];
+          if (!img.naturalWidth) continue;
+          const r = m * p.r;
+          nctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          nctx.translate(w * p.cx, h * p.cy);
+          nctx.rotate(p.rot);
+          nctx.drawImage(img, -r, -r, r * 2, r * 2);
+        }
+        nctx.restore();
+        nctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       }
 
       // Readability guard — darken the center column where the wordmark,
@@ -245,6 +280,7 @@ export function StarField() {
     ro.observe(canvas);
 
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
