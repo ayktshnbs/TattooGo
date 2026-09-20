@@ -114,7 +114,7 @@ export function BrowseArtists() {
               <button className="mono text-muted" onClick={() => setSelectedId('')} aria-label="Close">✕</button>
             </div>
             <span className="mono text-muted" style={{ fontSize: 11 }}>
-              {selected.role === 'studio' ? 'Studio' : 'Artist'}
+              {selected.role === 'studio' ? (lang === 'tr' ? 'Stüdyo' : 'Studio') : (lang === 'tr' ? 'Sanatçı' : 'Artist')}
               {selected.district ? ` · ${selected.district}` : ''}{selected.city ? `, ${selected.city}` : ''}
               {selected.rating != null ? ` · ★ ${selected.rating}` : ''}
             </span>
@@ -152,7 +152,7 @@ export function BrowseArtists() {
                   <div className="col">
                     <strong>{a.name}</strong>
                     <span className="mono text-muted" style={{ fontSize: 11 }}>
-                      {a.role === 'studio' ? 'Studio' : 'Artist'}
+                      {a.role === 'studio' ? (lang === 'tr' ? 'Stüdyo' : 'Studio') : (lang === 'tr' ? 'Sanatçı' : 'Artist')}
                       {a.district ? ` · ${a.district}` : ''}{a.city ? `, ${a.city}` : ''}
                       {a.hasPublicLocation ? ' · 📍' : ''}
                     </span>
@@ -466,7 +466,7 @@ export function Login() {
             try {
               const me = await auth.login(email, password);
               setUser(me);
-              navigate(destForIntent(intent, me));
+              navigate(destForIntent(intent, me, (location.state as { from?: unknown } | null)?.from));
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Login failed');
             } finally {
@@ -475,7 +475,7 @@ export function Login() {
           }}
         >
           {error && <span className="mono" style={{ color: 'var(--ink)' }}>⚠ {error}</span>}
-          <Field label="Email"><Input type="email" placeholder="hello@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
+          <Field label={lang === 'tr' ? 'E-posta' : 'Email'}><Input type="email" placeholder="hello@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
           <Field label={lang === 'tr' ? 'Şifre' : 'Password'}><Input type="password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required /></Field>
           <div className="row gap-3" style={{ marginTop: 12 }}>
             <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? '…' : (lang === 'tr' ? 'Giriş yap' : 'Sign in')}</button>
@@ -507,9 +507,13 @@ function intentFromSearch(search: string): 'create-request' | 'artist' | 'studio
   const v = new URLSearchParams(search).get('intent');
   return v === 'create-request' || v === 'artist' || v === 'studio' ? v : null;
 }
-function destForIntent(intent: string | null, me: { providerType?: 'artist' | 'studio' | null }): string {
+function destForIntent(intent: string | null, me: { providerType?: 'artist' | 'studio' | null }, from?: unknown): string {
   if (intent === 'create-request') return '/dashboard/create-request';
   if (intent === 'artist' || intent === 'studio') return `/studio?intent=${intent}`;
+  // The route guards pass the page that bounced to /login. Only an in-app
+  // absolute path is honoured — never a full URL or a protocol-relative
+  // "//evil" — so this cannot become an open redirect.
+  if (typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') && !from.startsWith('/login')) return from;
   return me.providerType ? '/studio' : '/dashboard';
 }
 
@@ -556,7 +560,7 @@ export function Register() {
         <Field label={lang === 'tr' ? 'Adınız' : 'Full name'}>
           <Input value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
-        <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
+        <Field label={lang === 'tr' ? 'E-posta' : 'Email'}><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
         <Field label={lang === 'tr' ? 'Şifre (en az 8 karakter)' : 'Password (min 8 characters)'}>
           <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
         </Field>
@@ -608,7 +612,7 @@ export function ForgotPassword() {
           <p className="text-muted" style={{ margin: 0 }}>
             {lang === 'tr' ? 'Hesabınızın e-posta adresini girin; size bir sıfırlama bağlantısı gönderelim.' : 'Enter your account email and we will send you a reset link.'}
           </p>
-          <Field label="Email"><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
+          <Field label={lang === 'tr' ? 'E-posta' : 'Email'}><Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></Field>
           <button className="btn btn-primary" type="submit" disabled={busy || !email}>{busy ? '…' : (lang === 'tr' ? 'Bağlantı gönder' : 'Send reset link')}</button>
         </form>
       )}
@@ -776,7 +780,7 @@ export function Contact() {
       <div className="split">
         <form className="col gap-4" onSubmit={(e) => e.preventDefault()} style={{ maxWidth: 480 }}>
           <Field label={lang === 'tr' ? 'Adınız' : 'Your name'}><Input /></Field>
-          <Field label="Email"><Input type="email" /></Field>
+          <Field label={lang === 'tr' ? 'E-posta' : 'Email'}><Input type="email" /></Field>
           <Field label={lang === 'tr' ? 'Mesaj' : 'Message'}><Textarea rows={5} /></Field>
           <button className="btn btn-primary" type="submit">{lang === 'tr' ? 'Gönder' : 'Send'}</button>
         </form>

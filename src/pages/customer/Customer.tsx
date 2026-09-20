@@ -409,6 +409,11 @@ export function NotificationsPage({ scope }: { scope: 'customer' | 'studio' }) {
   useReveal();
   const { lang } = useLang();
   const { data, error } = useLoad(() => notifications.list());
+  useEffect(() => {
+    // Opening the page counts as reading — flip the unread rows we just listed.
+    const unread = (data ?? []).filter(n => !n.read).map(n => n.id);
+    if (unread.length > 0) notifications.markRead(unread).catch(() => { /* cosmetic */ });
+  }, [data]);
   return (
     <DashboardLayout scope={scope} title={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
       {error && <ErrorNote message={error} />}
@@ -423,7 +428,7 @@ export function NotificationsPage({ scope }: { scope: 'customer' | 'studio' }) {
                 <strong style={{ fontSize: 14 }}>{n.title}</strong>
                 <span className="text-muted" style={{ fontSize: 13 }}>{n.body}</span>
               </div>
-              <span className="tag tag-soft" style={{ flexShrink: 0 }}>{n.kind}</span>
+              <span className={n.read ? 'tag tag-soft' : 'tag'} style={{ flexShrink: 0 }}>{n.kind}</span>
             </div>
           ))}
         </div>
@@ -664,7 +669,7 @@ export function CustomerProfile() {
               <strong>{user?.name}</strong>
             </div>
             <div className="row between center gap-4 wrap">
-              <span className="mono text-muted">Email</span>
+              <span className="mono text-muted">{lang === 'tr' ? 'E-posta' : 'Email'}</span>
               <span>{user?.email}</span>
             </div>
             <VerificationRow />

@@ -235,6 +235,12 @@ export interface ApiNotification {
 
 export const notifications = {
   list: () => call<ApiNotification[]>('/api/notifications'),
+  /** Mark the signed-in user's notifications read (all, or specific ids). */
+  markRead: (ids: string[] | 'all') =>
+    call<{ ok: true; updated: number }>('/api/notifications', {
+      method: 'PATCH',
+      body: JSON.stringify(ids === 'all' ? { all: true } : { ids }),
+    }),
 };
 
 /* ---------- requests ---------- */

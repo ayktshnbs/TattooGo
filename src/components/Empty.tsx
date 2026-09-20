@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useLang } from '../i18n/LangContext';
 
 /**
  * Professional empty state — shown wherever a brand-new account has no real
@@ -24,9 +25,12 @@ export function Empty({ title, body, cta, to }: { title: string; body?: string; 
 }
 
 export function Loading() {
+  // Localized: .mono is uppercase and <html lang="tr"> makes "Loading" render
+  // as "LOADİNG" (Turkish dotted İ) — the Turkish string cases correctly.
+  const { lang } = useLang();
   return (
     <div className="col center" style={{ padding: '64px 24px' }}>
-      <span className="mono text-muted">Loading…</span>
+      <span className="mono text-muted">{lang === 'tr' ? 'Yükleniyor…' : 'Loading…'}</span>
     </div>
   );
 }

@@ -650,7 +650,7 @@ export function StudioProfile() {
           <strong>{user?.name}</strong>
         </div>
         <div className="row between center">
-          <span className="mono text-muted">Email</span>
+          <span className="mono text-muted">{lang === 'tr' ? 'E-posta' : 'Email'}</span>
           <span>{user?.email}</span>
         </div>
         <VerificationRow />

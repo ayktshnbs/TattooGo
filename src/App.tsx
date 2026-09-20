@@ -1,19 +1,75 @@
 import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect, type ComponentType } from 'react';
 import { LangProvider } from './i18n/LangContext';
 import { AuthProvider } from './auth/AuthContext';
 import { RequireCustomer, RequireArtist, RequireAuth, RequireAdmin } from './auth/Guard';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Loading } from './components/Empty';
+
+// Landing is the first paint — it stays in the entry chunk. Everything else
+// is split per surface (public / customer / studio / admin / account) so a
+// visitor never downloads the dashboards, and Leaflet only ships with the
+// pages that draw a map. Each group is ONE dynamic import, so its pages share
+// a chunk; `page()` adapts a named export to React.lazy's default-export shape.
+type Pages<T> = () => Promise<T>;
+function page<T extends Record<string, unknown>, K extends keyof T>(load: Pages<T>, name: K) {
+  return lazy(() => load().then(m => ({ default: m[name] as ComponentType })));
+}
+const pub      = () => import('./pages/Public');
+const customer = () => import('./pages/customer/Customer');
+const studio   = () => import('./pages/studio/Studio');
+const admin    = () => import('./pages/admin/Admin');
+const account  = () => import('./pages/Account');
 
 import { Landing } from './pages/Landing';
-import { Account } from './pages/Account';
-import {
-  AdminSummaryPage, AdminUsersPage, AdminPortfolioPage,
-  AdminRequestsPage, AdminOffersPage, AdminReviewsPage, AdminAuditLogPage,
-} from './pages/admin/Admin';
-import { HowItWorks, BrowseArtists, ArtistPublicProfile, BrowseDesigns, Categories, Login, Register, ForgotPassword, ResetPassword, VerifyEmail, FAQ, About, Contact, Terms } from './pages/Public';
-import { CustomerHome, CreateRequest, MyRequests, OffersReceived, CustomerMessages, CustomerNotifications, CustomerFavorites, CustomerAppointments, CustomerTracking, CustomerReviews, CustomerProfile } from './pages/customer/Customer';
-import { StudioHome, MyTattoos, AddTattoo, GiveOffer, MyOffers, StudioTracking, StudioCalendar, StudioCampaigns, StudioArtists, StudioMaterials, StudioReviews, StudioMessages, StudioNotifications, StudioStats, StudioProfile } from './pages/studio/Studio';
+const Account = page(account, 'Account');
+const AdminSummaryPage = page(admin, 'AdminSummaryPage');
+const AdminUsersPage = page(admin, 'AdminUsersPage');
+const AdminPortfolioPage = page(admin, 'AdminPortfolioPage');
+const AdminRequestsPage = page(admin, 'AdminRequestsPage');
+const AdminOffersPage = page(admin, 'AdminOffersPage');
+const AdminReviewsPage = page(admin, 'AdminReviewsPage');
+const AdminAuditLogPage = page(admin, 'AdminAuditLogPage');
+const HowItWorks = page(pub, 'HowItWorks');
+const BrowseArtists = page(pub, 'BrowseArtists');
+const ArtistPublicProfile = page(pub, 'ArtistPublicProfile');
+const BrowseDesigns = page(pub, 'BrowseDesigns');
+const Categories = page(pub, 'Categories');
+const Login = page(pub, 'Login');
+const Register = page(pub, 'Register');
+const ForgotPassword = page(pub, 'ForgotPassword');
+const ResetPassword = page(pub, 'ResetPassword');
+const VerifyEmail = page(pub, 'VerifyEmail');
+const FAQ = page(pub, 'FAQ');
+const About = page(pub, 'About');
+const Contact = page(pub, 'Contact');
+const Terms = page(pub, 'Terms');
+const CustomerHome = page(customer, 'CustomerHome');
+const CreateRequest = page(customer, 'CreateRequest');
+const MyRequests = page(customer, 'MyRequests');
+const OffersReceived = page(customer, 'OffersReceived');
+const CustomerMessages = page(customer, 'CustomerMessages');
+const CustomerNotifications = page(customer, 'CustomerNotifications');
+const CustomerFavorites = page(customer, 'CustomerFavorites');
+const CustomerAppointments = page(customer, 'CustomerAppointments');
+const CustomerTracking = page(customer, 'CustomerTracking');
+const CustomerReviews = page(customer, 'CustomerReviews');
+const CustomerProfile = page(customer, 'CustomerProfile');
+const StudioHome = page(studio, 'StudioHome');
+const MyTattoos = page(studio, 'MyTattoos');
+const AddTattoo = page(studio, 'AddTattoo');
+const GiveOffer = page(studio, 'GiveOffer');
+const MyOffers = page(studio, 'MyOffers');
+const StudioTracking = page(studio, 'StudioTracking');
+const StudioCalendar = page(studio, 'StudioCalendar');
+const StudioCampaigns = page(studio, 'StudioCampaigns');
+const StudioArtists = page(studio, 'StudioArtists');
+const StudioMaterials = page(studio, 'StudioMaterials');
+const StudioReviews = page(studio, 'StudioReviews');
+const StudioMessages = page(studio, 'StudioMessages');
+const StudioNotifications = page(studio, 'StudioNotifications');
+const StudioStats = page(studio, 'StudioStats');
+const StudioProfile = page(studio, 'StudioProfile');
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -33,6 +89,7 @@ export default function App() {
         <BrowserRouter>
           <ScrollToTop />
           <ErrorBoundary>
+          <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/" element={<Landing />} />
 
@@ -95,6 +152,7 @@ export default function App() {
 
             <Route path="*" element={<Landing />} />
           </Routes>
+          </Suspense>
           </ErrorBoundary>
         </BrowserRouter>
       </AuthProvider>

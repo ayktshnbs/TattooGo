@@ -114,11 +114,11 @@ function DashTopBar({ scope }: { scope: DashboardScope }) {
           <span className="mono text-muted dash-hide-sm" style={{ marginLeft: 8 }}>· {scope === 'customer' ? (lang === 'tr' ? 'Müşteri Paneli' : 'Customer Panel') : (lang === 'tr' ? 'Stüdyo Paneli' : 'Studio Panel')}</span>
         </div>
         <div className="row center gap-4">
-          <Link to={scope === 'customer' ? '/dashboard/notifications' : '/studio/notifications'} className="mono row center gap-2" aria-label="Notifications">
-            <Icon name="notifications" size={18} /> <span className="dash-hide-sm">Notifications</span>
+          <Link to={scope === 'customer' ? '/dashboard/notifications' : '/studio/notifications'} className="mono row center gap-2" aria-label={lang === 'tr' ? 'Bildirimler' : 'Notifications'}>
+            <Icon name="notifications" size={18} /> <span className="dash-hide-sm">{lang === 'tr' ? 'Bildirimler' : 'Notifications'}</span>
           </Link>
-          <Link to={scope === 'customer' ? '/dashboard/messages' : '/studio/messages'} className="mono row center gap-2" aria-label="Messages">
-            <Icon name="messages" size={18} /> <span className="dash-hide-sm">DM</span>
+          <Link to={scope === 'customer' ? '/dashboard/messages' : '/studio/messages'} className="mono row center gap-2" aria-label={lang === 'tr' ? 'Mesajlar' : 'Messages'}>
+            <Icon name="messages" size={18} /> <span className="dash-hide-sm">{lang === 'tr' ? 'Mesajlar' : 'Messages'}</span>
           </Link>
           <LanguageSwitcher />
           <AccountMenu />
